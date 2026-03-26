@@ -1,176 +1,566 @@
 // agent.bal
-// SpecFinderAgent — the main orchestrator.
+// Agentic OpenAPI spec finder powered by Claude.
 //
-// Correct design for a daily spec-update checker:
+// The agent uses Claude's tool-use capability with a single `fetch_page` tool.
+// Claude navigates from the docs URL to the actual raw spec file URL.
+// Ballerina then does a fast HEAD check to confirm the URL is reachable.
 //
-//   Every run:
-//     1. Read memory  — get the last known spec URL and version (context only)
-//     2. Run agent    — ALWAYS. Give it the last known version so it knows
-//                       what to compare against and can find anything newer.
-//     3. Compare      — if agent found same version as memory, no update needed.
-//                       if agent found a newer version, update memory and flag it.
-//     4. Fallback     — if agent fails completely, fall back to the cached URL
-//                       from memory (at least return something rather than nothing).
-//
-// Memory is NEVER used to skip the agent. It is context that makes the agent
-// smarter — it tells the agent "last time I found version X, look for anything newer".
-//
-// Validation is always programmatic (validator.bal).
-// The LLM only finds candidate URLs — it never declares them valid.
+// Design choices:
+//   - Claude fetches and *reads* the spec content in its loop — so by the time
+//     it outputs SPEC_CANDIDATES the URL is already confirmed to contain a spec.
+//   - Ballerina only does a HEAD check (no full download). No validator needed.
+//   - No memory / caching — every run is fresh so we always find the latest.
 
+import ballerina/http;
+import ballerina/io;
 import ballerina/log;
+import ballerina/os;
 
-public class SpecFinderAgent {
+// ─── System prompt ────────────────────────────────────────────────────────────
+//
+// This is the core of the agent. It tells Claude exactly:
+//   1. What it is looking for
+//   2. What tool it has
+//   3. Step-by-step how to navigate
+//   4. API-specific shortcuts for each known connector
+//   5. How to output results
 
-    private final string anthropicApiKey;
+const string SYSTEM_PROMPT = "You are an expert at locating the LATEST official OpenAPI (or Swagger) " +
+    "specification file for REST APIs.\n" +
+    "\n" +
+    "## What you need to find\n" +
+    "A publicly accessible, directly downloadable YAML or JSON file whose first " +
+    "meaningful line starts with `openapi:` (e.g. `openapi: 3.1.0`) or `swagger:` " +
+    "(e.g. `swagger: '2.0'`). It must be the LATEST published version — not archived " +
+    "or deprecated.\n" +
+    "\n" +
+    "## Your tool: fetch_page\n" +
+    "Use it to retrieve any URL. It returns:\n" +
+    "  - For HTML pages  → { spec_links, page_text, other_links }\n" +
+    "  - For JSON files  → { type:'json', content:'...' }  (first 12 KB shown)\n" +
+    "  - For YAML files  → { type:'yaml', content:'...' }  (first 12 KB shown)\n" +
+    "\n" +
+    "Hard rules:\n" +
+    "  - Max 6 fetch_page calls per API. Plan before you fetch.\n" +
+    "  - NEVER fetch the same URL twice.\n" +
+    "  - NEVER fetch github.com/blob or github.com/tree URLs — they are HTML wrappers.\n" +
+    "    Instead use the GitHub API: https://api.github.com/repos/OWNER/REPO/git/trees/HEAD?recursive=1\n" +
+    "\n" +
+    "## Strategy (follow in order, stop as soon as you have the URL)\n" +
+    "\n" +
+    "### A — Use API-specific knowledge first (costs 0 fetches)\n" +
+    "For the APIs listed below, start directly from the known location.\n" +
+    "Skip fetching the docs page unless the known location fails.\n" +
+    "\n" +
+    "  GitHub REST API\n" +
+    "    → Fetch and verify: https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml\n" +
+    "      If it starts with `openapi:`, output it immediately — no further fetching needed.\n" +
+    "\n" +
+    "  Asana\n" +
+    "    → Fetch: https://api.github.com/repos/Asana/openapi/git/trees/HEAD?recursive=1\n" +
+    "      Find the path of the main spec file (look for files under /defs/ ending in .yaml)\n" +
+    "      Build: https://raw.githubusercontent.com/Asana/openapi/master/PATH\n" +
+    "\n" +
+    "  DocuSign (Admin API, Click API, eSign API)\n" +
+    "    → Fetch the docs page. Look for a 'Download' or 'OpenAPI' or 'Swagger' link.\n" +
+    "      Also check: https://api.github.com/repos/docusign/OpenAPI-forks/git/trees/HEAD?recursive=1\n" +
+    "      The eSign spec is often at: https://github.com/docusign/OpenAPI-forks\n" +
+    "\n" +
+    "  Candid (CharityCheckPdf, Essentials, Premier API)\n" +
+    "    → Fetch: https://developer.candid.org/reference/openapi\n" +
+    "      The page lists multiple specs. Find the one matching the target name exactly.\n" +
+    "      Look for a download link or direct YAML/JSON URL next to that spec name.\n" +
+    "\n" +
+    "  Discord\n" +
+    "    → Fetch: https://api.github.com/repos/discord/discord-api-spec/git/trees/HEAD?recursive=1\n" +
+    "      Find openapi.yaml or similar at the root or in /openapi/.\n" +
+    "      Build: https://raw.githubusercontent.com/discord/discord-api-spec/main/PATH\n" +
+    "\n" +
+    "### B — If A doesn't apply or fails: fetch the docs page\n" +
+    "  1. Look in spec_links for: raw.githubusercontent.com, .yaml, .yml, .json, openapi, swagger\n" +
+    "  2. If you see a github.com/OWNER/REPO link → use the GitHub API tree (not the HTML page)\n" +
+    "  3. If you see a direct .yaml/.json URL → fetch it to confirm it has openapi:/swagger:\n" +
+    "  4. If you see an internal 'reference' or 'download' link → follow it\n" +
+    "\n" +
+    "### C — Verify before outputting\n" +
+    "Always fetch the candidate URL first and confirm the content starts with `openapi:` or `swagger:`.\n" +
+    "Only output SPEC_CANDIDATES after you have seen the file content.\n" +
+    "\n" +
+    "## Selecting the best URL when multiple exist\n" +
+    "  - Highest OpenAPI version (3.1 > 3.0 > 2.0)\n" +
+    "  - YAML preferred over JSON at the same version\n" +
+    "  - main/master branch preferred over release tags\n" +
+    "  - Root or /defs/ or /openapi/ directory preferred over subdirectories\n" +
+    "\n" +
+    "## Output — ONLY output one of these two formats, nothing else before or after\n" +
+    "\n" +
+    "When found:\n" +
+    "SPEC_CANDIDATES:\n" +
+    "https://primary-url.yaml\n" +
+    "https://alternate-branch-url.yaml\n" +
+    "\n" +
+    "When no public spec exists:\n" +
+    "NO_SPEC_FOUND\n" +
+    "\n" +
+    "Note: Include both main and master branch variants for raw.githubusercontent.com URLs.\n" +
+    "      Only raw download URLs — never github.com/blob/ links.\n";
 
-    public function init(string anthropicApiKey = "") {
-        self.anthropicApiKey = anthropicApiKey;
+// ─── Tool definition ─────────────────────────────────────────────────────────
+
+final json FETCH_PAGE_TOOL = {
+    "name": "fetch_page",
+    "description":
+        "Fetches a URL and returns its content. " +
+        "HTML → {spec_links, page_text, other_links}. " +
+        "JSON/YAML → {type, content} with up to 12 KB of file content. " +
+        "Never fetch github.com/blob or github.com/tree pages. " +
+        "Use api.github.com/repos/OWNER/REPO/git/trees/HEAD?recursive=1 to list repo files.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "description": "Full URL to fetch (https://...)"}
+        },
+        "required": ["url"]
+    }
+};
+
+// ─── fetch_page tool handler ─────────────────────────────────────────────────
+
+function executeFetchPage(string url) returns string {
+    log:printInfo(string `    [fetch] ${url}`);
+
+    string|error body = httpGetBody(url);
+    if body is error {
+        log:printInfo(string `      error: ${body.message()}`);
+        return string `{"error":"fetch failed: ${jsonEsc(body.message())}"}`;
     }
 
-    public function find(
-        string docsUrl,
-        string apiName = "",
-        string? targetTitle = ()
-    ) returns SpecResult? {
+    // Detect content type from URL extension
+    string lo = url.toLowerAscii();
 
-        string name = apiName.length() > 0 ? apiName : docsUrl;
-        log:printInfo(repeatChar("-", 60));
-        log:printInfo(string `  API: ${name}`);
-        if targetTitle is string {
-            log:printInfo(string `  Target: ${targetTitle}`);
+    // YAML — return first 12 KB
+    if lo.endsWith(".yaml") || lo.endsWith(".yml") {
+        string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
+        return string `{"type":"yaml","content":${jsonStr(snippet)}}`;
+    }
+
+    // JSON — return first 12 KB (covers GitHub API tree responses fully for most repos)
+    if lo.endsWith(".json") || lo.includes("api.github.com") || lo.includes("application/json") {
+        string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
+        return string `{"type":"json","content":${jsonStr(snippet)}}`;
+    }
+
+    // Detect by content if extension is ambiguous
+    string trimmed = body.trim();
+    if trimmed.startsWith("openapi:") || trimmed.startsWith("swagger:") || trimmed.startsWith("---") {
+        string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
+        return string `{"type":"yaml","content":${jsonStr(snippet)}}`;
+    }
+    if trimmed.startsWith("{") || trimmed.startsWith("[") {
+        string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
+        return string `{"type":"json","content":${jsonStr(snippet)}}`;
+    }
+
+    // HTML — extract links and text
+    string[] specLinks = [];
+    string[] otherLinks = [];
+    string[] allLinks = extractHrefs(body, url);
+
+    foreach string lnk in allLinks {
+        if isSpecLink(lnk) {
+            specLinks.push(lnk);
+        } else {
+            otherLinks.push(lnk);
+        }
+    }
+
+    string txt = htmlText(body);
+    string txtSnippet = txt.length() > 3000 ? txt.substring(0, 3000) : txt;
+
+    return string `{"type":"html","spec_links":${jsonArr(specLinks)},"page_text":${jsonStr(txtSnippet)},"other_links":${jsonArr(otherLinks.length() > 60 ? otherLinks.slice(0, 60) : otherLinks)}}`;
+}
+
+// ─── Agent loop ───────────────────────────────────────────────────────────────
+
+public function runAgent(
+    string docsUrl,
+    string apiName,
+    string? targetTitle,
+    string anthropicKey
+) returns SpecResult? {
+
+    if anthropicKey.length() == 0 {
+        io:println("  ERROR: ANTHROPIC_API_KEY not set");
+        return ();
+    }
+
+    string targetNote = targetTitle is string
+        ? string `\n\nIMPORTANT — This page has multiple specs. Find ONLY the one titled '${targetTitle}'. Do not return any other spec.`
+        : "";
+
+    string userMsg = string `Find the latest OpenAPI spec file URL for the '${apiName}' API.
+Docs URL: ${docsUrl}${targetNote}
+
+Use your API-specific knowledge first (Strategy A), then fall back to fetching the docs page (Strategy B).
+Verify the content before outputting. Output SPEC_CANDIDATES: when done.`;
+
+    json[] messages = [{"role": "user", "content": userMsg}];
+    map<boolean> fetched = {};
+    string model = os:getEnv("CLAUDE_MODEL");
+    if model.length() == 0 { model = "claude-sonnet-4-6"; }
+
+    int turn = 0;
+    while turn < 10 {
+        turn += 1;
+        log:printInfo(string `  [turn ${turn}]`);
+
+        json|error resp = callClaude(anthropicKey, model, messages);
+        if resp is error {
+            log:printInfo(string `  [claude error] ${resp.message()}`);
+            break;
         }
 
-        // ── Step 1: Read memory for context ───────────────────────────────────
-        // This does NOT skip the agent. It gives the agent the last known
-        // version so it can check whether a newer one has been published.
-        MemoryEntry? prevEntry = getMemory(docsUrl);
-        string? prevVersion = prevEntry?.lastVersion;
-        string[] cachedUrls = prevEntry?.specUrlHistory ?: [];
-
-        if prevVersion is string {
-            log:printInfo(string `  [memory] last known version: ${prevVersion}`);
-        } else {
-            log:printInfo("  [memory] no previous run — first time discovering this spec");
+        string stopReason = "";
+        json[] blocks = [];
+        if resp is map<json> {
+            json? sr = resp["stop_reason"];
+            if sr is string { stopReason = sr; }
+            json? cb = resp["content"];
+            if cb is json[] { blocks = cb; }
         }
 
-        // ── Step 2: Run the agent (always) ────────────────────────────────────
-        // The agent is told the last known version so it knows what to look for.
-        // It will:
-        //   - On first run: discover the latest spec from scratch
-        //   - On subsequent runs: check whether a newer version was published
-        //     since the last run, and return the latest one either way
-        log:printInfo("  -> running agent");
-        ValidatedCandidate? agentResult = strategyAgent(
-            docsUrl,
-            apiName,
-            targetTitle,
-            self.anthropicApiKey,
-            lastKnownVersion = prevVersion
-        );
-
-        // ── Step 3: Determine what to return ─────────────────────────────────
-        ValidatedCandidate? finalResult = ();
-        string strategyUsed = "";
-
-        if agentResult is ValidatedCandidate {
-            // Agent succeeded — this is our result
-            finalResult = agentResult;
-            strategyUsed = "agent";
-            log:printInfo(string `  [agent] found: ${agentResult.url} (v${agentResult.openapiVersion})`);
-        } else {
-            // Agent failed — fall back to cached URL from memory if available
-            // This is a safety net: better to return a possibly-stale spec than nothing
-            if cachedUrls.length() > 0 {
-                log:printInfo("  [agent] failed — falling back to cached URL from memory");
-                ValidatedCandidate? memResult = bestResult(cachedUrls);
-                if memResult is ValidatedCandidate {
-                    finalResult = memResult;
-                    strategyUsed = "memory-fallback";
-                    log:printInfo(string `  [memory-fallback] using cached: ${memResult.url}`);
+        // Separate text and tool_use blocks
+        string text = "";
+        json[] toolBlocks = [];
+        foreach json blk in blocks {
+            if blk is map<json> {
+                json? t = blk["type"];
+                if t == "text" {
+                    json? tv = blk["text"];
+                    if tv is string { text += tv; }
+                } else if t == "tool_use" {
+                    toolBlocks.push(blk);
                 }
             }
         }
 
-        // ── Step 4: Nothing found at all ──────────────────────────────────────
-        if finalResult is () {
-            log:printInfo("  FAIL: spec not found");
-            markNotFound(docsUrl);
+        if text.length() > 0 {
+            int preview = text.length() > 600 ? 600 : text.length();
+            log:printInfo(string `  [claude] ${text.substring(0, preview)}${text.length() > 600 ? "..." : ""}`);
+        }
+
+        // Done — found candidates
+        if text.includes("SPEC_CANDIDATES:") {
+            return pickBestCandidate(text);
+        }
+        if text.includes("NO_SPEC_FOUND") {
+            log:printInfo("  [claude] declared no spec found");
             return ();
         }
 
-        ValidatedCandidate vc = finalResult;
+        // Tool use turn
+        if stopReason == "tool_use" && toolBlocks.length() > 0 {
+            messages.push({"role": "assistant", "content": blocks});
+            json[] results = [];
 
-        // ── Step 5: Detect version changes ────────────────────────────────────
-        // Compare what we just found against what memory recorded last time.
-        boolean isNew = false;
-        if prevVersion is string && vc.openapiVersion != prevVersion {
-            isNew = isNewerVersion(vc.openapiVersion, prevVersion);
-            if isNew {
-                log:printInfo(
-                    string `  VERSION UPDATED: ${prevVersion} -> ${vc.openapiVersion}`
-                );
+            foreach json tb in toolBlocks {
+                if tb is map<json> {
+                    string toolId = "";
+                    json? tid = tb["id"];
+                    if tid is string { toolId = tid; }
+
+                    string output = "{\"error\":\"invalid call\"}";
+                    json? inp = tb["input"];
+                    if inp is map<json> {
+                        json? urlVal = inp["url"];
+                        if urlVal is string {
+                            if fetched.hasKey(urlVal) {
+                                output = "{\"error\":\"already fetched this URL\"}";
+                            } else {
+                                fetched[urlVal] = true;
+                                output = executeFetchPage(urlVal);
+                            }
+                        }
+                    }
+                    results.push({"type": "tool_result", "tool_use_id": toolId, "content": output});
+                }
+            }
+            messages.push({"role": "user", "content": results});
+            continue;
+        }
+
+        // end_turn without candidates — nudge once
+        if stopReason == "end_turn" && turn < 9 {
+            messages.push({"role": "assistant", "content": blocks});
+            messages.push({
+                "role": "user",
+                "content": "Output your result now: SPEC_CANDIDATES: followed by the URL(s) you found, or NO_SPEC_FOUND."
+            });
+            continue;
+        }
+
+        break;
+    }
+
+    return ();
+}
+
+// Parse SPEC_CANDIDATES block, HEAD-check each URL, return first that's alive
+function pickBestCandidate(string text) returns SpecResult? {
+    int? idx = text.indexOf("SPEC_CANDIDATES:");
+    if idx is () { return (); }
+    string after = text.substring(idx + 16);
+
+    string[] urls = [];
+    map<boolean> seen = {};
+
+    foreach string line in splitLines(after) {
+        string t = line.trim();
+        if !t.startsWith("http") { continue; }
+
+        // Convert blob URLs to raw
+        string url = t;
+        if url.includes("github.com/") && url.includes("/blob/") {
+            url = "https://raw.githubusercontent.com/" + url.substring(19);
+            int? blobIdx = url.indexOf("/blob/");
+            if blobIdx is int {
+                url = url.substring(0, blobIdx) + "/" + url.substring(blobIdx + 6);
             }
         }
 
-        // ── Step 6: Update memory ─────────────────────────────────────────────
-        // Always update — even if version is the same, the URL might have changed
-        // (e.g. a new release tag). The new URL goes to the top of history.
-        updateMemory(docsUrl, vc.url, vc.openapiVersion);
+        if !seen.hasKey(url) { seen[url] = true; urls.push(url); }
 
-        log:printInfo(string `  OK [${strategyUsed}]: ${vc.url}`);
+        // Add alternate branch variant
+        if url.includes("raw.githubusercontent.com/") {
+            string alt = "";
+            if url.includes("/main/") {
+                int? mi = url.indexOf("/main/");
+                if mi is int { alt = url.substring(0, mi) + "/master/" + url.substring(mi + 6); }
+            } else if url.includes("/master/") {
+                int? mi = url.indexOf("/master/");
+                if mi is int { alt = url.substring(0, mi) + "/main/" + url.substring(mi + 8); }
+            }
+            if alt.length() > 0 && !seen.hasKey(alt) { seen[alt] = true; urls.push(alt); }
+        }
+    }
 
-        return {
-            specUrl:        vc.url,
-            openapiVersion: vc.openapiVersion,
-            apiVersion:     vc.apiVersion,
-            title:          vc.title,
-            format:         vc.format,
-            isNewVersion:   isNew,
-            strategyUsed:   strategyUsed
-        };
+    foreach string url in urls {
+        log:printInfo(string `  [check] ${url}`);
+        if headOk(url) {
+            string fmt = url.toLowerAscii().endsWith(".json") ? "json" : "yaml";
+            log:printInfo(string `  [ok] ${url}`);
+            return {specUrl: url, title: (), apiVersion: (), format: fmt};
+        }
+    }
+    return ();
+}
+
+// ─── Claude API call ─────────────────────────────────────────────────────────
+
+function callClaude(string apiKey, string model, json[] messages) returns json|error {
+    http:Client cl = check new ("https://api.anthropic.com", {
+        timeout: 90,
+        secureSocket: {enable: true}
+    });
+
+    json body = {
+        "model": model,
+        "max_tokens": 2048,
+        "system": SYSTEM_PROMPT,
+        "tools": [FETCH_PAGE_TOOL],
+        "messages": messages
+    };
+
+    http:Response resp = check cl->post("/v1/messages", body, {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json"
+    });
+
+    if resp.statusCode != 200 {
+        string errBody = check resp.getTextPayload();
+        int cap = errBody.length() > 300 ? 300 : errBody.length();
+        return error(string `Claude API ${resp.statusCode}: ${errBody.substring(0, cap)}`);
+    }
+
+    return check resp.getJsonPayload();
+}
+
+// ─── HTTP helpers ─────────────────────────────────────────────────────────────
+
+// GET — returns body text or error
+function httpGetBody(string url) returns string|error {
+    string ghToken = os:getEnv("GITHUB_TOKEN");
+    map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
+    if url.includes("api.github.com") && ghToken.length() > 0 {
+        headers["Authorization"] = string `Bearer ${ghToken}`;
+    }
+
+    http:Client cl = check new (url, {
+        followRedirects: {enabled: true, maxCount: 5},
+        timeout: 20,
+        secureSocket: {enable: true}
+    });
+    http:Response resp = check cl->get("", headers);
+    if resp.statusCode != 200 {
+        return error(string `HTTP ${resp.statusCode}`);
+    }
+    return check resp.getTextPayload();
+}
+
+// HEAD — returns true if the URL responds with HTTP 200
+function headOk(string url) returns boolean {
+    do {
+        string ghToken = os:getEnv("GITHUB_TOKEN");
+        map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
+        if url.includes("api.github.com") && ghToken.length() > 0 {
+            headers["Authorization"] = string `Bearer ${ghToken}`;
+        }
+        http:Client cl = check new (url, {
+            followRedirects: {enabled: true, maxCount: 5},
+            timeout: 10,
+            secureSocket: {enable: true}
+        });
+        http:Response r = check cl->head("", headers);
+        if r.statusCode == 200 { return true; }
+        if r.statusCode == 405 || r.statusCode == 501 {
+            http:Response r2 = check cl->get("", headers);
+            return r2.statusCode == 200;
+        }
+        return false;
+    } on fail {
+        return false;
     }
 }
 
-// ---------------------------------------------------------------------------
-// Version comparison
-// Returns true when newVer is strictly greater than oldVer numerically.
-// "3.1.0" > "3.0.0"  → true
-// "3.0.0" > "3.0.0"  → false (same version, no update)
-// "2.0"   > "3.0.0"  → false
-// ---------------------------------------------------------------------------
+// ─── HTML link extraction ─────────────────────────────────────────────────────
 
-isolated function isNewerVersion(string newVer, string oldVer) returns boolean {
-    int[] np = parseVersionParts(newVer);
-    int[] op = parseVersionParts(oldVer);
-    int maxLen = np.length() > op.length() ? np.length() : op.length();
-    int i = 0;
-    while i < maxLen {
-        int n = i < np.length() ? np[i] : 0;
-        int o = i < op.length() ? op[i] : 0;
-        if n > o { return true; }
-        if n < o { return false; }
-        i += 1;
+isolated function extractHrefs(string html, string baseUrl) returns string[] {
+    string[] links = [];
+    map<boolean> seen = {};
+    string rem = html;
+
+    while rem.length() > 0 && links.length() < 400 {
+        string loRem = rem.toLowerAscii();
+        int? idx = loRem.indexOf("href=");
+        if idx is () { break; }
+        int after = idx + 5;
+        if after >= rem.length() { break; }
+        string q = rem[after];
+        if q != "\"" && q != "'" { rem = rem.substring(after); continue; }
+        int valStart = after + 1;
+        int valEnd = valStart;
+        while valEnd < rem.length() && rem[valEnd] != q { valEnd += 1; }
+        if valEnd >= rem.length() { rem = rem.substring(after); continue; }
+        string href = rem.substring(valStart, valEnd);
+        rem = rem.substring(valEnd + 1);
+        string full = resolveUrl(href, baseUrl);
+        if full.length() > 0 && !seen.hasKey(full) {
+            seen[full] = true;
+            links.push(full);
+        }
     }
+    return links;
+}
+
+isolated function isSpecLink(string url) returns boolean {
+    string lo = url.toLowerAscii();
+    if lo.endsWith(".yaml") || lo.endsWith(".yml") { return true; }
+    if lo.includes("raw.githubusercontent.com") { return true; }
+    if lo.includes("api.github.com") { return true; }
+    if lo.includes("github.com/") { return true; }
+    string[] kw = ["openapi", "swagger", "/spec", "/defs/", "api-description", "download", "reference"];
+    foreach string k in kw {
+        if lo.includes(k) { return true; }
+    }
+    if lo.endsWith(".json") && (lo.includes("api") || lo.includes("spec")) { return true; }
     return false;
 }
 
-isolated function parseVersionParts(string ver) returns int[] {
-    int[] parts = [];
-    string rem = ver;
+isolated function htmlText(string html) returns string {
+    string result = "";
+    boolean inTag = false;
+    boolean lastSpace = false;
+    foreach string ch in html {
+        if ch == "<" { inTag = true; continue; }
+        if ch == ">" { inTag = false; result += " "; lastSpace = true; continue; }
+        if inTag { continue; }
+        boolean sp = ch == " " || ch == "\n" || ch == "\t" || ch == "\r";
+        if sp { if !lastSpace { result += " "; lastSpace = true; } }
+        else { result += ch; lastSpace = false; }
+    }
+    return result.trim();
+}
+
+isolated function resolveUrl(string href, string base) returns string {
+    if href.length() == 0 { return ""; }
+    if href.startsWith("http://") || href.startsWith("https://") { return href; }
+    if href.startsWith("//") {
+        string[] p = splitOn(base, "://");
+        return (p.length() > 0 ? p[0] : "https") + ":" + href;
+    }
+    if href.startsWith("/") { return origin(base) + href; }
+    if href.startsWith("#") || href.startsWith("javascript") || href.startsWith("mailto") || href.startsWith("data:") { return ""; }
+    return dir(base) + href;
+}
+
+isolated function origin(string url) returns string {
+    string[] p = splitOn(url, "://");
+    if p.length() < 2 { return ""; }
+    int? si = p[1].indexOf("/");
+    return si is int ? p[0] + "://" + p[1].substring(0, si) : p[0] + "://" + p[1];
+}
+
+isolated function dir(string url) returns string {
+    int i = url.length() - 1;
+    while i >= 0 { if url[i] == "/" { return url.substring(0, i + 1); } i -= 1; }
+    return url + "/";
+}
+
+// ─── String utilities ─────────────────────────────────────────────────────────
+
+isolated function splitOn(string s, string sep) returns string[] {
+    string[] parts = [];
+    string rem = s;
     while rem.length() > 0 {
-        int? dot = rem.indexOf(".");
-        string part = dot is int ? rem.substring(0, dot) : rem;
-        rem = dot is int ? rem.substring(dot + 1) : "";
-        int|error n = int:fromString(part.trim());
-        parts.push(n is int ? n : 0);
+        int? idx = rem.indexOf(sep);
+        if idx is int { parts.push(rem.substring(0, idx)); rem = rem.substring(idx + sep.length()); }
+        else { parts.push(rem); break; }
     }
     return parts;
 }
 
-isolated function repeatChar(string ch, int n) returns string {
-    string result = "";
-    int i = 0;
-    while i < n { result += ch; i += 1; }
-    return result;
+isolated function splitLines(string s) returns string[] {
+    return splitOn(s, "\n");
+}
+
+// Escape a string value for JSON embedding
+isolated function jsonEsc(string s) returns string {
+    string r = "";
+    foreach string ch in s {
+        if ch == "\\" { r += "\\\\"; }
+        else if ch == "\"" { r += "\\\""; }
+        else if ch == "\n" { r += "\\n"; }
+        else if ch == "\r" { r += "\\r"; }
+        else if ch == "\t" { r += "\\t"; }
+        else { r += ch; }
+    }
+    return r;
+}
+
+// JSON string literal
+isolated function jsonStr(string s) returns string {
+    return "\"" + jsonEsc(s) + "\"";
+}
+
+// JSON array of strings
+isolated function jsonArr(string[] items) returns string {
+    string r = "[";
+    boolean first = true;
+    foreach string item in items {
+        if !first { r += ","; }
+        r += jsonStr(item);
+        first = false;
+    }
+    return r + "]";
 }
