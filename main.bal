@@ -81,12 +81,22 @@ public function main() returns error? {
         string label = c.targetTitle is string ? string `${c.name} / ${c.targetTitle ?: ""}` : c.name;
         io:println(string `[${lp(idx.toString(), 2)}/${connectors.length()}] ${label}`);
 
+        // Look up any previously found URL for this connector so the agent can verify it first
+        string? knownUrl = ();
+        if existingIdx.hasKey(c.name) {
+            knownUrl = results[existingIdx.get(c.name)].specUrl;
+        }
+        if knownUrl is string {
+            io:println(string `         prev: ${knownUrl}`);
+        }
+
         time:Utc t0 = time:utcNow();
         SpecResult? result = runAgent(
-            docsUrl     = c.docsUrl,
-            apiName     = c.name,
-            targetTitle = c.targetTitle,
-            anthropicKey = apiKey
+            docsUrl      = c.docsUrl,
+            apiName      = c.name,
+            targetTitle  = c.targetTitle,
+            anthropicKey = apiKey,
+            knownSpecUrl = knownUrl
         );
         decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
 

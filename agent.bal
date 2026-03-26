@@ -30,80 +30,87 @@ const string SYSTEM_PROMPT = "You are an expert at locating the LATEST official 
     "\n" +
     "## What you need to find\n" +
     "A publicly accessible, directly downloadable YAML or JSON file whose first " +
-    "meaningful line starts with `openapi:` (e.g. `openapi: 3.1.0`) or `swagger:` " +
-    "(e.g. `swagger: '2.0'`). It must be the LATEST published version — not archived " +
-    "or deprecated.\n" +
+    "meaningful content starts with `openapi:` (e.g. `openapi: 3.1.0`) or `swagger:` " +
+    "(e.g. `swagger: '2.0'`). It must be the LATEST published version.\n" +
     "\n" +
     "## Your tool: fetch_page\n" +
     "Use it to retrieve any URL. It returns:\n" +
-    "  - For HTML pages  → { spec_links, page_text, other_links }\n" +
-    "  - For JSON files  → { type:'json', content:'...' }  (first 12 KB shown)\n" +
-    "  - For YAML files  → { type:'yaml', content:'...' }  (first 12 KB shown)\n" +
+    "  - HTML pages  → { spec_links, page_text, other_links }\n" +
+    "  - JSON files  → { type:'json', content:'...' }  (first 12 KB)\n" +
+    "  - YAML files  → { type:'yaml', content:'...' }  (first 12 KB)\n" +
     "\n" +
     "Hard rules:\n" +
-    "  - Max 6 fetch_page calls per API. Plan before you fetch.\n" +
+    "  - Max 6 fetch_page calls total. Plan carefully.\n" +
     "  - NEVER fetch the same URL twice.\n" +
-    "  - NEVER fetch github.com/blob or github.com/tree URLs — they are HTML wrappers.\n" +
-    "    Instead use the GitHub API: https://api.github.com/repos/OWNER/REPO/git/trees/HEAD?recursive=1\n" +
+    "  - NEVER fetch github.com/blob or github.com/tree URLs (HTML wrappers).\n" +
+    "    To list files in a GitHub repo always use:\n" +
+    "      https://api.github.com/repos/OWNER/REPO/git/trees/HEAD?recursive=1\n" +
     "\n" +
-    "## Strategy (follow in order, stop as soon as you have the URL)\n" +
+    "## Strategy\n" +
     "\n" +
-    "### A — Use API-specific knowledge first (costs 0 fetches)\n" +
-    "For the APIs listed below, start directly from the known location.\n" +
-    "Skip fetching the docs page unless the known location fails.\n" +
+    "### STEP 0 — Check the previously found URL first (if provided)\n" +
+    "If the user message includes a 'Previously found URL', fetch it FIRST.\n" +
+    "  - If it responds with valid spec content (starts with `openapi:` or `swagger:`) → output it immediately.\n" +
+    "  - If it fails (404 / wrong content) → the spec moved; continue to STEP 1 to find the new location.\n" +
+    "This saves fetches when the URL hasn't changed since last run.\n" +
+    "\n" +
+    "### STEP 1 — Use API-specific knowledge (for known APIs)\n" +
+    "Go directly to the known location. Skip the docs page unless the known location fails.\n" +
     "\n" +
     "  GitHub REST API\n" +
-    "    → Fetch and verify: https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml\n" +
-    "      If it starts with `openapi:`, output it immediately — no further fetching needed.\n" +
+    "    Known URL: https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml\n" +
+    "    Fetch it. If it starts with `openapi:` → output immediately.\n" +
     "\n" +
     "  Asana\n" +
-    "    → Fetch: https://api.github.com/repos/Asana/openapi/git/trees/HEAD?recursive=1\n" +
-    "      Find the path of the main spec file (look for files under /defs/ ending in .yaml)\n" +
-    "      Build: https://raw.githubusercontent.com/Asana/openapi/master/PATH\n" +
+    "    Repo tree: https://api.github.com/repos/Asana/openapi/git/trees/HEAD?recursive=1\n" +
+    "    Look for files under defs/ ending in .yaml → build raw URL with branch 'master'.\n" +
     "\n" +
-    "  DocuSign (Admin API, Click API, eSign API)\n" +
-    "    → Fetch the docs page. Look for a 'Download' or 'OpenAPI' or 'Swagger' link.\n" +
-    "      Also check: https://api.github.com/repos/docusign/OpenAPI-forks/git/trees/HEAD?recursive=1\n" +
-    "      The eSign spec is often at: https://github.com/docusign/OpenAPI-forks\n" +
+    "  DocuSign Admin API, DocuSign Click API, DocuSign eSign API\n" +
+    "    ALL DocuSign specs live in ONE repo: https://github.com/docusign/OpenAPI-Specifications\n" +
+    "    Fetch the tree: https://api.github.com/repos/docusign/OpenAPI-Specifications/git/trees/HEAD?recursive=1\n" +
+    "    The files are at the repo root. Find the correct file by API name:\n" +
+    "      Admin API  → file containing 'admin'   (e.g. admin.rest.swagger-v2.1.json)\n" +
+    "      Click API  → file containing 'click'   (e.g. click.rest.swagger-v2.json)\n" +
+    "      eSign API  → file containing 'esign' or 'esignature' (e.g. esignature.rest.swagger-v2.1.json)\n" +
+    "    Build raw URL: https://raw.githubusercontent.com/docusign/OpenAPI-Specifications/master/FILENAME\n" +
+    "    Fetch the file to verify it has `swagger:` or `openapi:` content.\n" +
     "\n" +
     "  Candid (CharityCheckPdf, Essentials, Premier API)\n" +
-    "    → Fetch: https://developer.candid.org/reference/openapi\n" +
-    "      The page lists multiple specs. Find the one matching the target name exactly.\n" +
-    "      Look for a download link or direct YAML/JSON URL next to that spec name.\n" +
+    "    Fetch: https://developer.candid.org/openapi\n" +
+    "    Page lists multiple specs with links like /openapi/<id>.\n" +
+    "    Fetch the link whose surrounding text matches the target title exactly.\n" +
+    "    Verify the fetched content has `\"title\"` matching the target.\n" +
     "\n" +
     "  Discord\n" +
-    "    → Fetch: https://api.github.com/repos/discord/discord-api-spec/git/trees/HEAD?recursive=1\n" +
-    "      Find openapi.yaml or similar at the root or in /openapi/.\n" +
-    "      Build: https://raw.githubusercontent.com/discord/discord-api-spec/main/PATH\n" +
+    "    Repo tree: https://api.github.com/repos/discord/discord-api-spec/git/trees/HEAD?recursive=1\n" +
+    "    Look for openapi.json or openapi.yaml in /specs/ → build raw URL with branch 'main'.\n" +
     "\n" +
-    "### B — If A doesn't apply or fails: fetch the docs page\n" +
-    "  1. Look in spec_links for: raw.githubusercontent.com, .yaml, .yml, .json, openapi, swagger\n" +
-    "  2. If you see a github.com/OWNER/REPO link → use the GitHub API tree (not the HTML page)\n" +
-    "  3. If you see a direct .yaml/.json URL → fetch it to confirm it has openapi:/swagger:\n" +
-    "  4. If you see an internal 'reference' or 'download' link → follow it\n" +
+    "### STEP 2 — Fall back: fetch the docs page\n" +
+    "  1. Scan spec_links for: raw.githubusercontent.com, .yaml, .yml, github.com/OWNER/REPO, openapi, swagger\n" +
+    "  2. GitHub repo link → use the API tree (never the HTML page)\n" +
+    "  3. Direct file URL → fetch to verify content\n" +
+    "  4. Internal reference/download link → follow it\n" +
     "\n" +
-    "### C — Verify before outputting\n" +
-    "Always fetch the candidate URL first and confirm the content starts with `openapi:` or `swagger:`.\n" +
-    "Only output SPEC_CANDIDATES after you have seen the file content.\n" +
+    "### STEP 3 — Always verify before outputting\n" +
+    "Fetch the candidate URL. Confirm it starts with `openapi:` or `swagger:` (or `\"openapi\":` for JSON).\n" +
+    "Only output SPEC_CANDIDATES after you have seen and confirmed the file content.\n" +
     "\n" +
-    "## Selecting the best URL when multiple exist\n" +
-    "  - Highest OpenAPI version (3.1 > 3.0 > 2.0)\n" +
-    "  - YAML preferred over JSON at the same version\n" +
+    "## Selecting the best when multiple exist\n" +
+    "  - Highest version (3.1 > 3.0 > 2.0)\n" +
+    "  - YAML preferred over JSON\n" +
     "  - main/master branch preferred over release tags\n" +
-    "  - Root or /defs/ or /openapi/ directory preferred over subdirectories\n" +
     "\n" +
-    "## Output — ONLY output one of these two formats, nothing else before or after\n" +
+    "## Output format — ONLY these two options, no other text\n" +
     "\n" +
-    "When found:\n" +
+    "Found:\n" +
     "SPEC_CANDIDATES:\n" +
-    "https://primary-url.yaml\n" +
-    "https://alternate-branch-url.yaml\n" +
+    "https://primary-url\n" +
+    "https://alternate-branch-url\n" +
     "\n" +
-    "When no public spec exists:\n" +
+    "Not found:\n" +
     "NO_SPEC_FOUND\n" +
     "\n" +
-    "Note: Include both main and master branch variants for raw.githubusercontent.com URLs.\n" +
-    "      Only raw download URLs — never github.com/blob/ links.\n";
+    "Rules: raw download URLs only (never github.com/blob/), include main+master variants for GitHub raw URLs.\n";
 
 // ─── Tool definition ─────────────────────────────────────────────────────────
 
@@ -186,7 +193,8 @@ public function runAgent(
     string docsUrl,
     string apiName,
     string? targetTitle,
-    string anthropicKey
+    string anthropicKey,
+    string? knownSpecUrl = ()   // previously found URL; agent verifies it first
 ) returns SpecResult? {
 
     if anthropicKey.length() == 0 {
@@ -198,11 +206,16 @@ public function runAgent(
         ? string `\n\nIMPORTANT — This page has multiple specs. Find ONLY the one titled '${targetTitle}'. Do not return any other spec.`
         : "";
 
-    string userMsg = string `Find the latest OpenAPI spec file URL for the '${apiName}' API.
-Docs URL: ${docsUrl}${targetNote}
+    // Tell the agent about the previously found URL so it can verify it first (STEP 0).
+    // This saves fetches when the location hasn't changed.
+    string memoryNote = knownSpecUrl is string
+        ? string `\n\nPreviously found URL: ${knownSpecUrl}\nStart by fetching this URL (STEP 0). If it is still a valid spec, return it immediately. If it fails or has moved, search for the new location.`
+        : "";
 
-Use your API-specific knowledge first (Strategy A), then fall back to fetching the docs page (Strategy B).
-Verify the content before outputting. Output SPEC_CANDIDATES: when done.`;
+    string userMsg = string `Find the latest OpenAPI spec file URL for the '${apiName}' API.
+Docs URL: ${docsUrl}${targetNote}${memoryNote}
+
+Follow the strategy in your instructions. Verify content before outputting SPEC_CANDIDATES.`;
 
     json[] messages = [{"role": "user", "content": userMsg}];
     map<boolean> fetched = {};
