@@ -1,1 +1,110 @@
-[{"name":"Asana", "docsUrl":"https://developers.asana.com/reference/rest-api-reference", "targetTitle":null, "specUrl":"https://raw.githubusercontent.com/Asana/openapi/master/defs/asana_oas.yaml", "title":null, "apiVersion":null, "format":"yaml", "status":"found", "checkedAt":"2026-03-26T05:46:49.096102Z", "elapsedSeconds":16.6}, {"name":"GitHub", "docsUrl":"https://docs.github.com/en/rest", "targetTitle":null, "specUrl":"https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml", "title":null, "apiVersion":null, "format":"yaml", "status":"found", "checkedAt":"2026-03-26T05:47:07.577521Z", "elapsedSeconds":18.5}, {"name":"DocuSign Admin API", "docsUrl":"https://developers.docusign.com/docs/admin-api/", "targetTitle":null, "specUrl":null, "title":null, "apiVersion":null, "format":null, "status":"not_found", "checkedAt":"2026-03-26T05:47:51.985933Z", "elapsedSeconds":44.4}, {"name":"DocuSign Click API", "docsUrl":"https://developers.docusign.com/docs/click-api/", "targetTitle":null, "specUrl":null, "title":null, "apiVersion":null, "format":null, "status":"not_found", "checkedAt":"2026-03-26T05:48:36.269175Z", "elapsedSeconds":44.3}, {"name":"DocuSign eSign API", "docsUrl":"https://developers.docusign.com/docs/esign-rest-api/", "targetTitle":null, "specUrl":null, "title":null, "apiVersion":null, "format":null, "status":"not_found", "checkedAt":"2026-03-26T05:49:28.071407Z", "elapsedSeconds":51.8}, {"name":"Candid CharityCheckPdf", "docsUrl":"https://developer.candid.org/reference/openapi", "targetTitle":"CharityCheckPdf", "specUrl":"https://developer.candid.org/openapi/67ed9946506aa7006c8195dc", "title":null, "apiVersion":null, "format":"yaml", "status":"found", "checkedAt":"2026-03-26T05:50:36.331855Z", "elapsedSeconds":68.3}, {"name":"Candid Essentials", "docsUrl":"https://developer.candid.org/reference/openapi", "targetTitle":"Essentials", "specUrl":"https://developer.candid.org/openapi/69a9f66d5b8c3e2ef5316d9d", "title":null, "apiVersion":null, "format":"yaml", "status":"found", "checkedAt":"2026-03-26T05:51:04.039013Z", "elapsedSeconds":27.7}, {"name":"Candid Premier", "docsUrl":"https://developer.candid.org/reference/openapi", "targetTitle":"Premier API", "specUrl":"https://developer.candid.org/openapi/69a9fcbafe150e84ef5085b9", "title":null, "apiVersion":null, "format":"yaml", "status":"found", "checkedAt":"2026-03-26T05:51:28.816266Z", "elapsedSeconds":24.8}, {"name":"Discord", "docsUrl":"https://discord.com/developers/docs/reference", "targetTitle":null, "specUrl":"https://raw.githubusercontent.com/discord/discord-api-spec/main/specs/openapi.json", "title":null, "apiVersion":null, "format":"json", "status":"found", "checkedAt":"2026-03-26T05:51:43.187412Z", "elapsedSeconds":14.4}]
+[
+    {
+        "name": "Asana",
+        "docsUrl": "https://developers.asana.com/reference/rest-api-reference",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/Asana/openapi/master/defs/asana_oas.yaml",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-03-26T05:46:49.096102Z",
+        "elapsedSeconds": 16.6
+    },
+    {
+        "name": "GitHub",
+        "docsUrl": "https://docs.github.com/en/rest",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-03-26T05:47:07.577521Z",
+        "elapsedSeconds": 18.5
+    },
+    {
+        "name": "DocuSign Admin API",
+        "docsUrl": "https://developers.docusign.com/docs/admin-api/",
+        "targetTitle": null,
+        "specUrl": null,
+        "title": null,
+        "apiVersion": null,
+        "format": null,
+        "status": "not_found",
+        "checkedAt": "2026-03-26T05:47:51.985933Z",
+        "elapsedSeconds": 44.4
+    },
+    {
+        "name": "DocuSign Click API",
+        "docsUrl": "https://developers.docusign.com/docs/click-api/",
+        "targetTitle": null,
+        "specUrl": null,
+        "title": null,
+        "apiVersion": null,
+        "format": null,
+        "status": "not_found",
+        "checkedAt": "2026-03-26T05:48:36.269175Z",
+        "elapsedSeconds": 44.3
+    },
+    {
+        "name": "DocuSign eSign API",
+        "docsUrl": "https://developers.docusign.com/docs/esign-rest-api/",
+        "targetTitle": null,
+        "specUrl": null,
+        "title": null,
+        "apiVersion": null,
+        "format": null,
+        "status": "not_found",
+        "checkedAt": "2026-03-26T05:49:28.071407Z",
+        "elapsedSeconds": 51.8
+    },
+    {
+        "name": "Candid CharityCheckPdf",
+        "docsUrl": "https://developer.candid.org/reference/openapi",
+        "targetTitle": "CharityCheckPdf",
+        "specUrl": "https://developer.candid.org/openapi/67ed9946506aa7006c8195dc",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-03-26T05:50:36.331855Z",
+        "elapsedSeconds": 68.3
+    },
+    {
+        "name": "Candid Essentials",
+        "docsUrl": "https://developer.candid.org/reference/openapi",
+        "targetTitle": "Essentials",
+        "specUrl": "https://developer.candid.org/openapi/69a9f66d5b8c3e2ef5316d9d",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-03-26T05:51:04.039013Z",
+        "elapsedSeconds": 27.7
+    },
+    {
+        "name": "Candid Premier",
+        "docsUrl": "https://developer.candid.org/reference/openapi",
+        "targetTitle": "Premier API",
+        "specUrl": "https://developer.candid.org/openapi/69a9fcbafe150e84ef5085b9",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-03-26T05:51:28.816266Z",
+        "elapsedSeconds": 24.8
+    },
+    {
+        "name": "Discord",
+        "docsUrl": "https://discord.com/developers/docs/reference",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/discord/discord-api-spec/main/specs/openapi.json",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-03-26T05:51:43.187412Z",
+        "elapsedSeconds": 14.4
+    }
+]
