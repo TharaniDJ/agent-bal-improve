@@ -28,7 +28,7 @@ public type FetchResult record {|
 public function httpGet(string url) returns FetchResult|error {
     http:Client cl = check new (url, {
         followRedirects: {enabled: true, maxCount: 5},
-        timeout: 20,
+        timeout: 10,
         secureSocket: {enable: true}
     });
     http:Response resp = check cl->get("", REQUEST_HEADERS);

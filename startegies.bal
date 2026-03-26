@@ -45,14 +45,15 @@ const string AGENT_SYSTEM =
     "## How to find it — follow this reasoning\n" +
     "\n" +
     "STEP 1 — Read the official docs page.\n" +
-    "Fetch the given documentation URL. Carefully read the page text and ALL links.\n" +
-    "Look for:\n" +
-    "  - Any link with: openapi, swagger, .yaml, .yml, .json, spec, defs,\n" +
-    "    raw.githubusercontent, download\n" +
-    "  - Text like: 'OpenAPI', 'Swagger', 'Download spec', 'API spec', 'REST API spec'\n" +
+    "Fetch the given documentation URL. The response will contain:\n" +
+    "  - spec_related_links: links that look like they could lead to a spec — READ THESE FIRST\n" +
+    "  - page_text: plain text of the page\n" +
+    "  - other_links: all remaining links\n" +
+    "Look through spec_related_links for:\n" +
+    "  - Direct links to .yaml, .yml, or .json spec files\n" +
     "  - Links to GitHub repositories (github.com/owner/repo)\n" +
-    "  - Links to API catalog endpoints (e.g. api.hubspot.com/public/api/spec/v1/specs)\n" +
-    "  - Any mention of where the spec is hosted\n" +
+    "  - Links to API catalog endpoints\n" +
+    "  - Any link mentioning: openapi, swagger, spec, defs, raw.githubusercontent\n" +
     "\n" +
     "STEP 2 — If you find a direct raw spec URL, output it immediately.\n" +
     "A direct raw URL looks like:\n" +
@@ -64,13 +65,13 @@ const string AGENT_SYSTEM =
     "DO NOT fetch github.com/owner/repo/tree or /blob pages — they are HTML, not files.\n" +
     "Instead, list all files via the GitHub API:\n" +
     "  https://api.github.com/repos/OWNER/REPO/git/trees/HEAD?recursive=1\n" +
-    "From the file list, find files whose name contains 'openapi' or 'swagger'\n" +
+    "From the file list, find files whose path contains 'openapi' or 'swagger'\n" +
     "and ends in .yaml, .yml, or .json.\n" +
-    "Then construct the raw download URL:\n" +
-    "  https://raw.githubusercontent.com/OWNER/REPO/BRANCH/path/to/file.yaml\n" +
-    "Try branch 'main' first, then 'master'.\n" +
-    "If there are multiple spec files, pick the one with the highest version number\n" +
-    "in its filename (e.g. v2.1 > v2) or the one in the root/main directory.\n" +
+    "Then output BOTH branch variants as candidates — the validator will try both:\n" +
+    "  https://raw.githubusercontent.com/OWNER/REPO/main/path/to/file.yaml\n" +
+    "  https://raw.githubusercontent.com/OWNER/REPO/master/path/to/file.yaml\n" +
+    "If there are multiple spec files, prefer the one in the root or /defs or /spec\n" +
+    "directory with the highest version number in its name.\n" +
     "\n" +
     "STEP 4 — If the page links to an API catalog endpoint, fetch it.\n" +
     "Some APIs (like HubSpot) serve specs through a catalog API, for example:\n" +
@@ -117,7 +118,7 @@ const string AGENT_SYSTEM =
 
 final json FETCH_PAGE_TOOL = {
     "name": "fetch_page",
-    "description": "Fetches a URL and returns its content. For HTML pages, returns page text and all links. For JSON/YAML files, returns the content directly. Do NOT use this to fetch github.com/tree or github.com/blob pages — use the GitHub API endpoint (api.github.com/repos/.../git/trees/HEAD?recursive=1) to list repo files instead.",
+    "description": "Fetches a URL and returns its content. For HTML pages, returns: spec_related_links (links that look like they could lead to an OpenAPI spec — CHECK THESE FIRST), page_text (plain text of the page), and other_links. For JSON/YAML files, returns the file content directly. IMPORTANT: Do NOT fetch github.com/tree or github.com/blob pages — use the GitHub API (api.github.com/repos/OWNER/REPO/git/trees/HEAD?recursive=1) to list repo files instead.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -150,7 +151,7 @@ function executeFetchPage(string url) returns string {
     string ct = fr.contentType.toLowerAscii();
     string lo = url.toLowerAscii();
 
-    // JSON or YAML — return content directly (truncated to save tokens)
+    // JSON or YAML — return content directly (first 40KB)
     if ct.includes("json") || lo.endsWith(".json") {
         string body = fr.body.length() > 40000 ? fr.body.substring(0, 40000) : fr.body;
         return string `{"type":"json","content":${jsonEscape(body)}}`;
@@ -160,14 +161,40 @@ function executeFetchPage(string url) returns string {
         return string `{"type":"yaml","content":${jsonEscape(body)}}`;
     }
 
-    // HTML — strip tags, extract links, return structured result
+    // HTML — extract text and all links, then separate into spec-related and all links
     string pageText = htmlToText(fr.body);
-    string[] links = extractAllLinks(fr.body, url);
+    string[] allLinks = extractAllLinks(fr.body, url);
 
-    string linksArr = buildJsonStringArray(links);
-    string textTrunc = pageText.length() > 8000 ? pageText.substring(0, 8000) : pageText;
+    // Separate links that look like they could lead to a spec
+    string[] specLinks = [];
+    string[] otherLinks = [];
+    foreach string lnk in allLinks {
+        string lnkLo = lnk.toLowerAscii();
+        boolean looksSpec = lnkLo.includes("openapi") || lnkLo.includes("swagger")
+            || lnkLo.endsWith(".yaml") || lnkLo.endsWith(".yml")
+            || lnkLo.endsWith(".json")
+            || lnkLo.includes("raw.githubusercontent")
+            || lnkLo.includes("/spec") || lnkLo.includes("/defs")
+            || lnkLo.includes("github.com")
+            || lnkLo.includes("api-spec") || lnkLo.includes("api_spec")
+            || lnkLo.includes("download") || lnkLo.includes("reference");
+        if looksSpec {
+            specLinks.push(lnk);
+        } else {
+            otherLinks.push(lnk);
+        }
+    }
 
-    return string `{"type":"html","url":${jsonEscape(url)},"text":${jsonEscape(textTrunc)},"links":${linksArr}}`;
+    // Keep text short — JS-heavy pages have almost no useful text anyway
+    string textTrunc = pageText.length() > 2000 ? pageText.substring(0, 2000) : pageText;
+
+    // Build response: spec-related links first (most useful), then text, then all other links
+    string specLinksJson = buildJsonStringArray(specLinks);
+    string otherLinksJson = buildJsonStringArray(
+        otherLinks.length() > 50 ? otherLinks.slice(0, 50) : otherLinks
+    );
+
+    return string `{"type":"html","url":${jsonEscape(url)},"spec_related_links":${specLinksJson},"page_text":${jsonEscape(textTrunc)},"other_links":${otherLinksJson}}`;
 }
 
 // Strip HTML tags and collapse whitespace
@@ -201,18 +228,14 @@ isolated function extractAllLinks(string html, string baseUrl) returns string[] 
         if hIdx is () { break; }
         int after = hIdx + 5;
         if after >= remaining.length() { break; }
-        string q = remaining.substring(after, after + 1);
+        string q = remaining[after];
         if q != "\"" && q != "'" { remaining = remaining.substring(after); continue; }
-        int beginIdx = after + 1;
-        if beginIdx >= remaining.length() { break; }
-
-        string tail = remaining.substring(beginIdx);
-        int? relCloseIdx = tail.indexOf(q);
-        if relCloseIdx is () { remaining = remaining.substring(after); continue; }
-
-        int closeIdx = beginIdx + relCloseIdx;
-        string href = remaining.substring(beginIdx, closeIdx);
-        remaining = remaining.substring(closeIdx + 1);
+        int fromIdx = after + 1;
+        int toIdx = fromIdx;
+        while toIdx < remaining.length() && remaining[toIdx] != q { toIdx += 1; }
+        if toIdx >= remaining.length() { remaining = remaining.substring(after); continue; }
+        string href = remaining.substring(fromIdx, toIdx);
+        remaining = remaining.substring(toIdx + 1);
         string full = resolveUrl(href, baseUrl);
         if full.length() > 0 && !seen.hasKey(full) {
             seen[full] = true;
@@ -278,18 +301,50 @@ isolated function buildJsonStringArray(string[] items) returns string {
 }
 
 // ---------------------------------------------------------------------------
-// Parse SPEC_CANDIDATES from agent output
+// Parse SPEC_CANDIDATES from agent output.
+// Also expands raw GitHub URLs to try both main and master branches,
+// since agents often only output one branch variant.
 // ---------------------------------------------------------------------------
 
 isolated function parseCandidates(string text) returns string[] {
     string[] results = [];
+    map<boolean> seen = {};
+
     int? idx = text.indexOf("SPEC_CANDIDATES:");
     if idx is () { return results; }
     string after = text.substring(idx + 16);
+
     foreach string line in splitOnChar(after, "\n") {
         string t = line.trim();
-        if startsWithHttp(t) {
-            results.push(blobToRaw(t));
+        if !startsWithHttp(t) { continue; }
+
+        // Convert any github.com/blob/ URLs to raw
+        string url = blobToRaw(t);
+
+        if !seen.hasKey(url) {
+            seen[url] = true;
+            results.push(url);
+        }
+
+        // For raw.githubusercontent.com URLs, add the other branch variant
+        // e.g. if agent said /main/..., also try /master/... and vice versa
+        if url.includes("raw.githubusercontent.com/") {
+            string altUrl = "";
+            if url.includes("/main/") {
+                int? mainIdx = url.indexOf("/main/");
+                if mainIdx is int {
+                    altUrl = url.substring(0, mainIdx) + "/master/" + url.substring(mainIdx + 6);
+                }
+            } else if url.includes("/master/") {
+                int? masterIdx = url.indexOf("/master/");
+                if masterIdx is int {
+                    altUrl = url.substring(0, masterIdx) + "/main/" + url.substring(masterIdx + 8);
+                }
+            }
+            if altUrl.length() > 0 && !seen.hasKey(altUrl) {
+                seen[altUrl] = true;
+                results.push(altUrl);
+            }
         }
     }
     return results;
