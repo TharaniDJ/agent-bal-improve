@@ -1,15 +1,13 @@
 // agent.bal
 // Agentic OpenAPI spec finder powered by Claude.
 //
-// The agent uses Claude's tool-use capability with a single `fetch_page` tool.
-// Claude navigates from the docs URL to the actual raw spec file URL.
-// Ballerina then does a fast HEAD check to confirm the URL is reachable.
+// On every run the agent:
+//   1. Navigates to find (or re-verify) the spec URL
+//   2. Checks whether the previously found URL is still the LATEST version
+//   3. Returns the confirmed latest URL
 //
-// Design choices:
-//   - Claude fetches and *reads* the spec content in its loop — so by the time
-//     it outputs SPEC_CANDIDATES the URL is already confirmed to contain a spec.
-//   - Ballerina only does a HEAD check (no full download). No validator needed.
-//   - No memory / caching — every run is fresh so we always find the latest.
+// Memory (knownSpecUrl + knownSpecRepo) is passed in from openapi_specs.json
+// so the agent can go straight to the source and verify, not search blind.
 
 import ballerina/http;
 import ballerina/io;
@@ -25,92 +23,112 @@ import ballerina/os;
 //   4. API-specific shortcuts for each known connector
 //   5. How to output results
 
-const string SYSTEM_PROMPT = "You are an expert at locating the LATEST official OpenAPI (or Swagger) " +
-    "specification file for REST APIs.\n" +
+const string SYSTEM_PROMPT =
+    "You are an expert at finding the LATEST publicly available OpenAPI or Swagger " +
+    "specification file for any REST API. You run on a schedule and must verify on " +
+    "every run that the spec URL you return is still the most recently updated one.\n" +
     "\n" +
-    "## What you need to find\n" +
-    "A publicly accessible, directly downloadable YAML or JSON file whose first " +
-    "meaningful content starts with `openapi:` (e.g. `openapi: 3.1.0`) or `swagger:` " +
-    "(e.g. `swagger: '2.0'`). It must be the LATEST published version.\n" +
+    "## What you are looking for\n" +
+    "A directly downloadable YAML or JSON file whose root-level content contains " +
+    "`openapi:` (e.g. `openapi: 3.1.0`) or `swagger:` (e.g. `swagger: '2.0'`). " +
+    "It must be publicly accessible without authentication.\n" +
     "\n" +
-    "## Your tool: fetch_page\n" +
-    "Use it to retrieve any URL. It returns:\n" +
-    "  - HTML pages  → { spec_links, page_text, other_links }\n" +
-    "  - JSON files  → { type:'json', content:'...' }  (first 12 KB)\n" +
-    "  - YAML files  → { type:'yaml', content:'...' }  (first 12 KB)\n" +
+    "## Tool: fetch_page\n" +
+    "Fetches any URL. Returns:\n" +
+    "  - HTML page  → { spec_links: [...], page_text: \"...\", other_links: [...] }\n" +
+    "  - JSON file  → { type: \"json\", content: \"<first 12 KB>\" }\n" +
+    "  - YAML file  → { type: \"yaml\", content: \"<first 12 KB>\" }\n" +
     "\n" +
-    "Hard rules:\n" +
-    "  - Max 6 fetch_page calls total. Plan carefully.\n" +
-    "  - NEVER fetch the same URL twice.\n" +
-    "  - NEVER fetch github.com/blob or github.com/tree URLs (HTML wrappers).\n" +
-    "    To list files in a GitHub repo always use:\n" +
+    "Strict rules — violations waste your limited fetches:\n" +
+    "  - Maximum 6 fetch_page calls per task.\n" +
+    "  - Never fetch the same URL twice.\n" +
+    "  - Never fetch github.com/blob/ or github.com/tree/ pages (they are HTML, not files).\n" +
+    "    To explore a GitHub repo's contents always use the tree API:\n" +
     "      https://api.github.com/repos/OWNER/REPO/git/trees/HEAD?recursive=1\n" +
+    "    This returns a flat JSON list of every file path in the repo.\n" +
     "\n" +
-    "## Strategy\n" +
+    "## How to find the spec (generic strategy — works for any API)\n" +
     "\n" +
-    "### STEP 0 — Check the previously found URL first (if provided)\n" +
-    "If the user message includes a 'Previously found URL', fetch it FIRST.\n" +
-    "  - If it responds with valid spec content (starts with `openapi:` or `swagger:`) → output it immediately.\n" +
-    "  - If it fails (404 / wrong content) → the spec moved; continue to STEP 1 to find the new location.\n" +
-    "This saves fetches when the URL hasn't changed since last run.\n" +
+    "─────────────────────────────────────────────────────────────────\n" +
+    "CASE A: A previously found spec URL is given in the user message\n" +
+    "─────────────────────────────────────────────────────────────────\n" +
+    "Your goal is NOT just to verify the URL is reachable — you must confirm it is " +
+    "STILL THE LATEST version. Follow these steps:\n" +
     "\n" +
-    "### STEP 1 — Use API-specific knowledge (for known APIs)\n" +
-    "Go directly to the known location. Skip the docs page unless the known location fails.\n" +
+    "  A1. Fetch the previously found URL.\n" +
+    "      - If it returns 404 or no spec content → the spec moved; go to CASE B.\n" +
+    "      - If it returns valid spec content → note the version from info.version.\n" +
     "\n" +
-    "  GitHub REST API\n" +
-    "    Known URL: https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml\n" +
-    "    Fetch it. If it starts with `openapi:` → output immediately.\n" +
+    "  A2. Check whether a newer version has been published.\n" +
+    "      Method depends on where the spec is hosted:\n" +
     "\n" +
-    "  Asana\n" +
-    "    Repo tree: https://api.github.com/repos/Asana/openapi/git/trees/HEAD?recursive=1\n" +
-    "    Look for files under defs/ ending in .yaml → build raw URL with branch 'master'.\n" +
+    "      If the URL contains raw.githubusercontent.com/OWNER/REPO/...:\n" +
+    "        - Fetch the repo tree: https://api.github.com/repos/OWNER/REPO/git/trees/HEAD?recursive=1\n" +
+    "        - Scan the 'tree' array for spec files (.yaml/.yml/.json containing openapi/swagger/spec/api in name)\n" +
+    "        - If a file with a HIGHER version number or a NEWER path exists → return that instead\n" +
+    "        - If the same file still exists and nothing newer → return the original URL\n" +
     "\n" +
-    "  DocuSign Admin API, DocuSign Click API, DocuSign eSign API\n" +
-    "    ALL DocuSign specs live in ONE repo: https://github.com/docusign/OpenAPI-Specifications\n" +
-    "    Fetch the tree: https://api.github.com/repos/docusign/OpenAPI-Specifications/git/trees/HEAD?recursive=1\n" +
-    "    The files are at the repo root. Find the correct file by API name:\n" +
-    "      Admin API  → file containing 'admin'   (e.g. admin.rest.swagger-v2.1.json)\n" +
-    "      Click API  → file containing 'click'   (e.g. click.rest.swagger-v2.json)\n" +
-    "      eSign API  → file containing 'esign' or 'esignature' (e.g. esignature.rest.swagger-v2.1.json)\n" +
-    "    Build raw URL: https://raw.githubusercontent.com/docusign/OpenAPI-Specifications/master/FILENAME\n" +
-    "    Fetch the file to verify it has `swagger:` or `openapi:` content.\n" +
+    "      If the URL is a direct API endpoint (not raw GitHub):\n" +
+    "        - Direct API endpoints always serve the current version at a stable URL\n" +
+    "        - If A1 confirmed valid content → return it immediately, no further checking needed\n" +
     "\n" +
-    "  Candid (CharityCheckPdf, Essentials, Premier API)\n" +
-    "    Fetch: https://developer.candid.org/openapi\n" +
-    "    Page lists multiple specs with links like /openapi/<id>.\n" +
-    "    Fetch the link whose surrounding text matches the target title exactly.\n" +
-    "    Verify the fetched content has `\"title\"` matching the target.\n" +
+    "─────────────────────────────────────────────────────────────────\n" +
+    "CASE B: No previously found URL (first run) or previous URL is invalid\n" +
+    "─────────────────────────────────────────────────────────────────\n" +
+    "Navigate from the docs URL provided by the user.\n" +
     "\n" +
-    "  Discord\n" +
-    "    Repo tree: https://api.github.com/repos/discord/discord-api-spec/git/trees/HEAD?recursive=1\n" +
-    "    Look for openapi.json or openapi.yaml in /specs/ → build raw URL with branch 'main'.\n" +
+    "  B1. Fetch the docs URL.\n" +
+    "      Examine spec_links first — they are pre-filtered for relevance.\n" +
+    "      You are looking for:\n" +
+    "        - A direct file URL ending in .yaml, .yml, or .json\n" +
+    "        - A raw.githubusercontent.com URL\n" +
+    "        - A github.com/OWNER/REPO link (→ use tree API, not the HTML page)\n" +
+    "        - Links mentioning: openapi, swagger, spec, download, reference\n" +
     "\n" +
-    "### STEP 2 — Fall back: fetch the docs page\n" +
-    "  1. Scan spec_links for: raw.githubusercontent.com, .yaml, .yml, github.com/OWNER/REPO, openapi, swagger\n" +
-    "  2. GitHub repo link → use the API tree (never the HTML page)\n" +
-    "  3. Direct file URL → fetch to verify content\n" +
-    "  4. Internal reference/download link → follow it\n" +
+    "  B2. Follow the most promising lead:\n" +
+    "      - github.com/OWNER/REPO → fetch tree API → find spec files → build raw URL\n" +
+    "      - Direct .yaml/.json URL → fetch it → verify it has openapi:/swagger: content\n" +
+    "      - Internal docs/reference/download page → follow it → look for spec links again\n" +
     "\n" +
-    "### STEP 3 — Always verify before outputting\n" +
-    "Fetch the candidate URL. Confirm it starts with `openapi:` or `swagger:` (or `\"openapi\":` for JSON).\n" +
-    "Only output SPEC_CANDIDATES after you have seen and confirmed the file content.\n" +
+    "  B3. When selecting from multiple spec files in a repo:\n" +
+    "      - Prefer files whose name contains: openapi, swagger, api, spec\n" +
+    "      - Prefer files in root, /spec/, /openapi/, /defs/, /swagger/ over nested paths\n" +
+    "      - Avoid: test/, example/, archive/ directories\n" +
+    "      - If multiple versions exist, pick the HIGHEST version number\n" +
     "\n" +
-    "## Selecting the best when multiple exist\n" +
-    "  - Highest version (3.1 > 3.0 > 2.0)\n" +
-    "  - YAML preferred over JSON\n" +
-    "  - main/master branch preferred over release tags\n" +
+    "  B4. Always verify: fetch the candidate file and confirm it contains " +
+    "`openapi:` or `swagger:` (or `\"openapi\":` for JSON). Only then output it.\n" +
     "\n" +
-    "## Output format — ONLY these two options, no other text\n" +
+    "  B5. If this page lists MULTIPLE specs (e.g. a company with several products):\n" +
+    "      The user message will specify a 'Target spec'. Match by title exactly.\n" +
+    "      Fetch only the matching spec's link, not others.\n" +
     "\n" +
-    "Found:\n" +
+    "─────────────────────────────────────────────────────────────────\n" +
+    "Choosing the best when multiple candidates exist\n" +
+    "─────────────────────────────────────────────────────────────────\n" +
+    "  - Highest OpenAPI/Swagger version wins (3.1.0 > 3.0.0 > 2.0)\n" +
+    "  - YAML preferred over JSON at the same version\n" +
+    "  - Default branch (main/master) preferred over tagged releases\n" +
+    "\n" +
+    "─────────────────────────────────────────────────────────────────\n" +
+    "Output format — output EXACTLY one of these blocks, nothing else\n" +
+    "─────────────────────────────────────────────────────────────────\n" +
+    "When you have found and verified the spec URL:\n" +
+    "\n" +
     "SPEC_CANDIDATES:\n" +
-    "https://primary-url\n" +
+    "https://primary-confirmed-url\n" +
     "https://alternate-branch-url\n" +
     "\n" +
-    "Not found:\n" +
+    "Optionally, if the spec is GitHub-hosted, add a SPEC_REPO line:\n" +
+    "SPEC_REPO: owner/repo\n" +
+    "\n" +
+    "When no publicly accessible spec exists after exhausting your search:\n" +
     "NO_SPEC_FOUND\n" +
     "\n" +
-    "Rules: raw download URLs only (never github.com/blob/), include main+master variants for GitHub raw URLs.\n";
+    "Rules:\n" +
+    "  - Only raw download URLs (never github.com/blob/ links)\n" +
+    "  - Include both /main/ and /master/ branch variants for raw.githubusercontent.com URLs\n" +
+    "  - No explanatory text before or after the output block\n";
 
 // ─── Tool definition ─────────────────────────────────────────────────────────
 
@@ -194,7 +212,8 @@ public function runAgent(
     string apiName,
     string? targetTitle,
     string anthropicKey,
-    string? knownSpecUrl = ()   // previously found URL; agent verifies it first
+    string? knownSpecUrl = (),   // previously found spec URL
+    string? knownSpecRepo = ()   // previously found GitHub repo (owner/repo)
 ) returns SpecResult? {
 
     if anthropicKey.length() == 0 {
@@ -202,20 +221,32 @@ public function runAgent(
         return ();
     }
 
+    // Multi-spec page: tell Claude which one to pick
     string targetNote = targetTitle is string
-        ? string `\n\nIMPORTANT — This page has multiple specs. Find ONLY the one titled '${targetTitle}'. Do not return any other spec.`
+        ? string `\n\nTarget spec: This docs page lists multiple API specs. ` +
+          string `Find ONLY the one titled '${targetTitle}'. Ignore all others.`
         : "";
 
-    // Tell the agent about the previously found URL so it can verify it first (STEP 0).
-    // This saves fetches when the location hasn't changed.
-    string memoryNote = knownSpecUrl is string
-        ? string `\n\nPreviously found URL: ${knownSpecUrl}\nStart by fetching this URL (STEP 0). If it is still a valid spec, return it immediately. If it fails or has moved, search for the new location.`
-        : "";
+    // Memory context: give Claude what we know from the previous run.
+    // CASE A in the system prompt: verify the known URL is still the latest.
+    string memoryNote = "";
+    if knownSpecUrl is string {
+        memoryNote = string `\n\nPreviously found spec URL: ${knownSpecUrl}`;
+        if knownSpecRepo is string {
+            memoryNote += string `\nGitHub repo: ${knownSpecRepo}`;
+            memoryNote += string `\nUse CASE A: fetch the spec URL first to verify it's still valid, ` +
+                          string `then check the repo tree (api.github.com/repos/${knownSpecRepo}/git/trees/HEAD?recursive=1) ` +
+                          string `for any newer version. Return the latest confirmed URL.`;
+        } else {
+            memoryNote += string `\nUse CASE A: fetch this URL first. If valid and latest, return it. ` +
+                          string `If it fails or you find a newer version, search from the docs URL.`;
+        }
+    }
 
-    string userMsg = string `Find the latest OpenAPI spec file URL for the '${apiName}' API.
+    string userMsg = string `Find the latest OpenAPI spec file URL for: ${apiName}
 Docs URL: ${docsUrl}${targetNote}${memoryNote}
 
-Follow the strategy in your instructions. Verify content before outputting SPEC_CANDIDATES.`;
+Follow the strategy in your instructions. Always verify the file content before outputting SPEC_CANDIDATES.`;
 
     json[] messages = [{"role": "user", "content": userMsg}];
     map<boolean> fetched = {};
@@ -318,20 +349,37 @@ Follow the strategy in your instructions. Verify content before outputting SPEC_
     return ();
 }
 
-// Parse SPEC_CANDIDATES block, HEAD-check each URL, return first that's alive
+// Parse SPEC_CANDIDATES and optional SPEC_REPO from agent output.
+// HEAD-checks each candidate URL; returns the first reachable one.
 function pickBestCandidate(string text) returns SpecResult? {
     int? idx = text.indexOf("SPEC_CANDIDATES:");
     if idx is () { return (); }
     string after = text.substring(idx + 16);
 
+    // Parse SPEC_REPO if present (may appear before or after the URLs)
+    string? specRepo = ();
+    int? repoIdx = text.indexOf("SPEC_REPO:");
+    if repoIdx is int {
+        string repoLine = text.substring(repoIdx + 10);
+        // Take just the first line, trimmed
+        string[] repoLines = splitLines(repoLine);
+        if repoLines.length() > 0 {
+            string repo = repoLines[0].trim();
+            if repo.length() > 0 { specRepo = repo; }
+        }
+    }
+
+    // If no explicit SPEC_REPO, infer it from the first raw GitHub URL
     string[] urls = [];
     map<boolean> seen = {};
 
     foreach string line in splitLines(after) {
         string t = line.trim();
+        // Stop parsing if we hit SPEC_REPO line
+        if t.startsWith("SPEC_REPO:") { break; }
         if !t.startsWith("http") { continue; }
 
-        // Convert blob URLs to raw
+        // Convert any github.com/blob/ links to raw
         string url = t;
         if url.includes("github.com/") && url.includes("/blob/") {
             url = "https://raw.githubusercontent.com/" + url.substring(19);
@@ -343,8 +391,12 @@ function pickBestCandidate(string text) returns SpecResult? {
 
         if !seen.hasKey(url) { seen[url] = true; urls.push(url); }
 
-        // Add alternate branch variant
+        // Also add the alternate branch variant (main ↔ master)
         if url.includes("raw.githubusercontent.com/") {
+            // Infer repo from URL if not yet known
+            if specRepo is () {
+                specRepo = inferRepoFromRawUrl(url);
+            }
             string alt = "";
             if url.includes("/main/") {
                 int? mi = url.indexOf("/main/");
@@ -362,8 +414,23 @@ function pickBestCandidate(string text) returns SpecResult? {
         if headOk(url) {
             string fmt = url.toLowerAscii().endsWith(".json") ? "json" : "yaml";
             log:printInfo(string `  [ok] ${url}`);
-            return {specUrl: url, title: (), apiVersion: (), format: fmt};
+            return {specUrl: url, specRepo: specRepo, title: (), apiVersion: (), format: fmt};
         }
+    }
+    return ();
+}
+
+// Extract "owner/repo" from a raw.githubusercontent.com URL
+isolated function inferRepoFromRawUrl(string url) returns string? {
+    // https://raw.githubusercontent.com/OWNER/REPO/BRANCH/...
+    string prefix = "raw.githubusercontent.com/";
+    int? pi = url.indexOf(prefix);
+    if pi is () { return (); }
+    string rest = url.substring(pi + prefix.length());
+    // rest = "OWNER/REPO/BRANCH/..."
+    string[] parts = splitOn(rest, "/");
+    if parts.length() >= 2 {
+        return parts[0] + "/" + parts[1];
     }
     return ();
 }

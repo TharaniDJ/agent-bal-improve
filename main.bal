@@ -81,10 +81,13 @@ public function main() returns error? {
         string label = c.targetTitle is string ? string `${c.name} / ${c.targetTitle ?: ""}` : c.name;
         io:println(string `[${lp(idx.toString(), 2)}/${connectors.length()}] ${label}`);
 
-        // Look up any previously found URL for this connector so the agent can verify it first
+        // Pass previously found URL + repo so the agent can verify/update efficiently
         string? knownUrl = ();
+        string? knownRepo = ();
         if existingIdx.hasKey(c.name) {
-            knownUrl = results[existingIdx.get(c.name)].specUrl;
+            ResultEntry prev = results[existingIdx.get(c.name)];
+            knownUrl  = prev.specUrl;
+            knownRepo = prev.specRepo;
         }
         if knownUrl is string {
             io:println(string `         prev: ${knownUrl}`);
@@ -92,11 +95,12 @@ public function main() returns error? {
 
         time:Utc t0 = time:utcNow();
         SpecResult? result = runAgent(
-            docsUrl      = c.docsUrl,
-            apiName      = c.name,
-            targetTitle  = c.targetTitle,
-            anthropicKey = apiKey,
-            knownSpecUrl = knownUrl
+            docsUrl       = c.docsUrl,
+            apiName       = c.name,
+            targetTitle   = c.targetTitle,
+            anthropicKey  = apiKey,
+            knownSpecUrl  = knownUrl,
+            knownSpecRepo = knownRepo
         );
         decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
 
@@ -110,6 +114,7 @@ public function main() returns error? {
                 docsUrl:       c.docsUrl,
                 targetTitle:   c.targetTitle,
                 specUrl:       result.specUrl,
+                specRepo:      result.specRepo,
                 title:         result.title,
                 apiVersion:    result.apiVersion,
                 format:        result.format,
@@ -125,6 +130,7 @@ public function main() returns error? {
                 docsUrl:       c.docsUrl,
                 targetTitle:   c.targetTitle,
                 specUrl:       (),
+                specRepo:      (),
                 title:         (),
                 apiVersion:    (),
                 format:        (),
