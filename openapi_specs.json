@@ -687,5 +687,57 @@
         "status": "found",
         "checkedAt": "2026-03-29T14:03:27.535168Z",
         "elapsedSeconds": 49.4
+    },
+    {
+        "name": "Salesforce Marketing Cloud",
+        "docsUrl": "https://developer.salesforce.com/docs/marketing/marketing-cloud/guide/apis-overview.html",
+        "targetTitle": null,
+        "specUrl": null,
+        "specRepo": null,
+        "title": null,
+        "apiVersion": null,
+        "format": null,
+        "status": "not_found",
+        "checkedAt": "2026-03-29T15:46:08.118024Z",
+        "elapsedSeconds": 58.8
+    },
+    {
+        "name": "SCIM",
+        "docsUrl": "https://wso2.com/asgardeo/docs/apis/scim2/",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/wso2/docs-is/master/en/asgardeo/docs/apis/restapis/scim2-users.yaml",
+        "specRepo": "wso2/docs-is",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-03-29T15:54:58.423281Z",
+        "elapsedSeconds": 74.3
+    },
+    {
+        "name": "Slack",
+        "docsUrl": "https://api.slack.com/methods",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/slackapi/slack-api-specs/master/web-api/slack_web_openapi_v2.json",
+        "specRepo": "slackapi/slack-api-specs",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-03-29T15:55:24.219763Z",
+        "elapsedSeconds": 25.8
+    },
+    {
+        "name": "Smartsheet",
+        "docsUrl": "https://developers.smartsheet.com/api/smartsheet/introduction",
+        "targetTitle": null,
+        "specUrl": "https://developers.smartsheet.com/_bundle/api/smartsheet/openapi.yaml?download",
+        "specRepo": null,
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-03-29T15:56:10.568955Z",
+        "elapsedSeconds": 46.3
     }
 ]
