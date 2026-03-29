@@ -10,18 +10,11 @@
 // so the agent can go straight to the source and verify, not search blind.
 
 import ballerina/http;
-import ballerina/io;
 import ballerina/log;
 import ballerina/os;
+import ballerina/time;
 
 // ─── System prompt ────────────────────────────────────────────────────────────
-//
-// This is the core of the agent. It tells Claude exactly:
-//   1. What it is looking for
-//   2. What tool it has
-//   3. Step-by-step how to navigate
-//   4. API-specific shortcuts for each known connector
-//   5. How to output results
 
 const string SYSTEM_PROMPT =
     "You are an expert at finding the LATEST publicly available OpenAPI or Swagger " +
@@ -40,68 +33,113 @@ const string SYSTEM_PROMPT =
     "  - YAML file  → { type: \"yaml\", content: \"<first 12 KB>\" }\n" +
     "\n" +
     "Strict rules — violations waste your limited fetches:\n" +
-    "  - Maximum 6 fetch_page calls per task.\n" +
+    "  - Maximum 8 fetch_page calls per task.\n" +
     "  - Never fetch the same URL twice.\n" +
-    "  - Never fetch github.com/blob/ or github.com/tree/ pages (they are HTML, not files).\n" +
-    "    To explore a GitHub repo's contents always use the tree API:\n" +
+    "  - Never fetch github.com/blob/ or github.com/tree/ pages (HTML, not files).\n" +
+    "  - To list files in a GitHub repo folder, use the Contents API:\n" +
+    "      https://api.github.com/repos/OWNER/REPO/contents/PATH\n" +
+    "    This returns a JSON array of {name, type, path, download_url} entries.\n" +
+    "  - Only use the recursive tree API when you need a full flat listing:\n" +
     "      https://api.github.com/repos/OWNER/REPO/git/trees/HEAD?recursive=1\n" +
-    "    This returns a flat JSON list of every file path in the repo.\n" +
+    "    WARNING: large repos truncate this response. If truncated is true or " +
+    "    expected paths are missing, switch to the Contents API to drill in folder by folder.\n" +
     "\n" +
-    "## How to find the spec (generic strategy — works for any API)\n" +
+    "## How to find the spec (generic strategy)\n" +
     "\n" +
     "─────────────────────────────────────────────────────────────────\n" +
     "CASE A: A previously found spec URL is given in the user message\n" +
     "─────────────────────────────────────────────────────────────────\n" +
-    "Your goal is NOT just to verify the URL is reachable — you must confirm it is " +
-    "STILL THE LATEST version. Follow these steps:\n" +
+    "Your goal is to confirm the URL is still the LATEST version.\n" +
     "\n" +
     "  A1. Fetch the previously found URL.\n" +
-    "      - If it returns 404 or no spec content → the spec moved; go to CASE B.\n" +
-    "      - If it returns valid spec content → note the version from info.version.\n" +
+    "      - If 404 or no spec content → spec moved; go to CASE B.\n" +
+    "      - If valid spec content → note info.version.\n" +
     "\n" +
-    "  A2. Check whether a newer version has been published.\n" +
-    "      Method depends on where the spec is hosted:\n" +
+    "  A2. Check for newer versions based on hosting:\n" +
     "\n" +
-    "      If the URL contains raw.githubusercontent.com/OWNER/REPO/...:\n" +
-    "        - Fetch the repo tree: https://api.github.com/repos/OWNER/REPO/git/trees/HEAD?recursive=1\n" +
-    "        - Scan the 'tree' array for spec files (.yaml/.yml/.json containing openapi/swagger/spec/api in name)\n" +
-    "        - If a file with a HIGHER version number or a NEWER path exists → return that instead\n" +
-    "        - If the same file still exists and nothing newer → return the original URL\n" +
+    "      If URL is raw.githubusercontent.com/OWNER/REPO/...:\n" +
+    "        - Use the Contents API to check the parent folder for newer siblings.\n" +
+    "        - Apply the VERSIONED FOLDER NAVIGATION rules below to find the latest.\n" +
+    "        - If something newer exists → return that. Otherwise → return original.\n" +
     "\n" +
-    "      If the URL is a direct API endpoint (not raw GitHub):\n" +
-    "        - Direct API endpoints always serve the current version at a stable URL\n" +
-    "        - If A1 confirmed valid content → return it immediately, no further checking needed\n" +
+    "      If URL is a direct API endpoint (not GitHub):\n" +
+    "        - Stable URL always serves the current version.\n" +
+    "        - If A1 confirmed valid → return immediately.\n" +
     "\n" +
     "─────────────────────────────────────────────────────────────────\n" +
-    "CASE B: No previously found URL (first run) or previous URL is invalid\n" +
+    "CASE B: No previously found URL or previous URL is invalid\n" +
     "─────────────────────────────────────────────────────────────────\n" +
-    "Navigate from the docs URL provided by the user.\n" +
     "\n" +
     "  B1. Fetch the docs URL.\n" +
-    "      Examine spec_links first — they are pre-filtered for relevance.\n" +
-    "      You are looking for:\n" +
-    "        - A direct file URL ending in .yaml, .yml, or .json\n" +
-    "        - A raw.githubusercontent.com URL\n" +
-    "        - A github.com/OWNER/REPO link (→ use tree API, not the HTML page)\n" +
-    "        - Links mentioning: openapi, swagger, spec, download, reference\n" +
+    "      - If it returns nearly empty page_text (under 200 chars) or no spec_links\n" +
+    "        and no github.com links → the page is likely a JavaScript SPA that\n" +
+    "        cannot be parsed by this tool. In that case:\n" +
+    "          * Check if the user message contains a knownSpecRepo — if so,\n" +
+    "            go directly to the Contents API for that repo.\n" +
+    "          * Otherwise try: https://api.github.com/repos/<inferred-org>/<inferred-repo>/contents/\n" +
+    "      - If it returns a GitHub repo URL → use Contents API, not HTML tree page.\n" +
+    "      - If it returns direct spec links → follow them.\n" +
     "\n" +
     "  B2. Follow the most promising lead:\n" +
-    "      - github.com/OWNER/REPO → fetch tree API → find spec files → build raw URL\n" +
-    "      - Direct .yaml/.json URL → fetch it → verify it has openapi:/swagger: content\n" +
-    "      - Internal docs/reference/download page → follow it → look for spec links again\n" +
+    "      - github.com/OWNER/REPO → Contents API → drill down → find spec file\n" +
+    "      - Direct .yaml/.json URL → fetch and verify openapi:/swagger: content\n" +
+    "      - Docs/reference/download page → follow → look for spec links\n" +
     "\n" +
-    "  B3. When selecting from multiple spec files in a repo:\n" +
-    "      - Prefer files whose name contains: openapi, swagger, api, spec\n" +
-    "      - Prefer files in root, /spec/, /openapi/, /defs/, /swagger/ over nested paths\n" +
+    "  B3. When selecting among multiple spec files → prefer:\n" +
+    "      - Names containing: openapi, swagger, api, spec\n" +
+    "      - Root, /spec/, /openapi/, /defs/, /swagger/ over deeply nested paths\n" +
     "      - Avoid: test/, example/, archive/ directories\n" +
-    "      - If multiple versions exist, pick the HIGHEST version number\n" +
+    "      - Apply VERSIONED FOLDER NAVIGATION rules if version folders exist\n" +
     "\n" +
-    "  B4. Always verify: fetch the candidate file and confirm it contains " +
-    "`openapi:` or `swagger:` (or `\"openapi\":` for JSON). Only then output it.\n" +
+    "  B4. Always verify: fetch the candidate and confirm `openapi:` or `swagger:`.\n" +
     "\n" +
-    "  B5. If this page lists MULTIPLE specs (e.g. a company with several products):\n" +
-    "      The user message will specify a 'Target spec'. Match by title exactly.\n" +
-    "      Fetch only the matching spec's link, not others.\n" +
+    "  B5. If the page lists multiple specs, the user message will name a Target spec.\n" +
+    "      Match by title and fetch only that spec.\n" +
+    "\n" +
+    "─────────────────────────────────────────────────────────────────\n" +
+    "VERSIONED FOLDER NAVIGATION\n" +
+    "─────────────────────────────────────────────────────────────────\n" +
+    "Some repos use a layered folder structure to track rollouts and versions.\n" +
+    "A common pattern is:\n" +
+    "  <spec-root>/\n" +
+    "    Rollouts/           ← or: releases/, builds/, snapshots/, or similar\n" +
+    "      <id-or-number>/   ← rollout/build identifier\n" +
+    "        <version>/      ← API version subfolder\n" +
+    "          <spec-file>   ← the actual spec\n" +
+    "\n" +
+    "Use these rules at each level:\n" +
+    "\n" +
+    "RULE 1 — Rollout/build folder (numeric IDs like 148901, 130902, 424):\n" +
+    "  - List the parent folder with the Contents API.\n" +
+    "  - Collect all entries where type==\"dir\" and name matches: all digits (^[0-9]+$).\n" +
+    "  - Pick the folder with the HIGHEST numeric value — that is the latest rollout.\n" +
+    "  - Ignore folders whose names contain letters, dots, or hyphens at this level\n" +
+    "    (those are named releases, not numeric build IDs).\n" +
+    "\n" +
+    "RULE 2 — Version subfolder (v3, v4, v2, etc.):\n" +
+    "  - List the chosen rollout folder with the Contents API.\n" +
+    "  - Collect all entries where type==\"dir\" and name matches a semantic version\n" +
+    "    pattern: v followed by one or more digits (^v[0-9]+$), e.g. v2, v3, v4.\n" +
+    "  - Pick the folder with the HIGHEST version number.\n" +
+    "  - AVOID folders whose names look like calendar dates (e.g. 2026-09, 2025-01).\n" +
+    "    These are typically pre-release or preview snapshots, not official releases.\n" +
+    "    Only use a date-named folder if NO vN folder exists at all.\n" +
+    "\n" +
+    "RULE 3 — Spec file selection within a version folder:\n" +
+    "  - List the version folder with the Contents API.\n" +
+    "  - Collect all entries where type==\"file\" and name ends in .json, .yaml, or .yml.\n" +
+    "  - Prefer files whose name contains: openapi, swagger, api, spec.\n" +
+    "  - If multiple remain, prefer the one with the most recent commit (Contents API\n" +
+    "    returns a commit sha; use git/commits?path=... to compare if needed).\n" +
+    "  - Use the download_url field from the Contents API response as the raw URL.\n" +
+    "    Do not construct raw.githubusercontent.com URLs manually when you have\n" +
+    "    download_url available — it is already the correct raw download link.\n" +
+    "\n" +
+    "RULE 4 — Intermediate staging or prerelease folders to skip:\n" +
+    "  - Skip any folder named: staging, prerelease, pre-release, preview, draft,\n" +
+    "    canary, beta, alpha, rc, nightly, snapshot, internal, wip.\n" +
+    "  - Skip folders whose names are ISO dates (YYYY-MM-DD or YYYY-MM) unless\n" +
+    "    they are the ONLY option after exhausting all vN candidates.\n" +
     "\n" +
     "─────────────────────────────────────────────────────────────────\n" +
     "Choosing the best when multiple candidates exist\n" +
@@ -119,7 +157,7 @@ const string SYSTEM_PROMPT =
     "https://primary-confirmed-url\n" +
     "https://alternate-branch-url\n" +
     "\n" +
-    "Optionally, if the spec is GitHub-hosted, add a SPEC_REPO line:\n" +
+    "Optionally add a SPEC_REPO line for GitHub-hosted specs:\n" +
     "SPEC_REPO: owner/repo\n" +
     "\n" +
     "When no publicly accessible spec exists after exhausting your search:\n" +
@@ -139,7 +177,8 @@ final json FETCH_PAGE_TOOL = {
         "HTML → {spec_links, page_text, other_links}. " +
         "JSON/YAML → {type, content} with up to 12 KB of file content. " +
         "Never fetch github.com/blob or github.com/tree pages. " +
-        "Use api.github.com/repos/OWNER/REPO/git/trees/HEAD?recursive=1 to list repo files.",
+        "Use api.github.com/repos/OWNER/REPO/contents/PATH to list a folder. " +
+        "Use api.github.com/repos/OWNER/REPO/git/trees/HEAD?recursive=1 for full flat listing (may truncate on large repos).",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -160,16 +199,15 @@ function executeFetchPage(string url) returns string {
         return string `{"error":"fetch failed: ${jsonEsc(body.message())}"}`;
     }
 
-    // Detect content type from URL extension
     string lo = url.toLowerAscii();
 
-    // YAML — return first 12 KB
+    // YAML
     if lo.endsWith(".yaml") || lo.endsWith(".yml") {
         string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
         return string `{"type":"yaml","content":${jsonStr(snippet)}}`;
     }
 
-    // JSON — return first 12 KB (covers GitHub API tree responses fully for most repos)
+    // JSON / GitHub API
     if lo.endsWith(".json") || lo.includes("api.github.com") || lo.includes("application/json") {
         string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
         return string `{"type":"json","content":${jsonStr(snippet)}}`;
@@ -201,8 +239,9 @@ function executeFetchPage(string url) returns string {
 
     string txt = htmlText(body);
     string txtSnippet = txt.length() > 3000 ? txt.substring(0, 3000) : txt;
+    int otherCap = otherLinks.length() > 60 ? 60 : otherLinks.length();
 
-    return string `{"type":"html","spec_links":${jsonArr(specLinks)},"page_text":${jsonStr(txtSnippet)},"other_links":${jsonArr(otherLinks.length() > 60 ? otherLinks.slice(0, 60) : otherLinks)}}`;
+    return string `{"type":"html","spec_links":${jsonArr(specLinks)},"page_text":${jsonStr(txtSnippet)},"other_links":${jsonArr(otherLinks.slice(0, otherCap))}}`;
 }
 
 // ─── Agent loop ───────────────────────────────────────────────────────────────
@@ -212,31 +251,28 @@ public function runAgent(
     string apiName,
     string? targetTitle,
     string anthropicKey,
-    string? knownSpecUrl = (),   // previously found spec URL
-    string? knownSpecRepo = ()   // previously found GitHub repo (owner/repo)
+    string? knownSpecUrl = (),
+    string? knownSpecRepo = ()
 ) returns SpecResult? {
 
     if anthropicKey.length() == 0 {
-        io:println("  ERROR: ANTHROPIC_API_KEY not set");
+        log:printInfo("  ERROR: ANTHROPIC_API_KEY not set");
         return ();
     }
 
-    // Multi-spec page: tell Claude which one to pick
     string targetNote = targetTitle is string
         ? string `\n\nTarget spec: This docs page lists multiple API specs. ` +
           string `Find ONLY the one titled '${targetTitle}'. Ignore all others.`
         : "";
 
-    // Memory context: give Claude what we know from the previous run.
-    // CASE A in the system prompt: verify the known URL is still the latest.
     string memoryNote = "";
     if knownSpecUrl is string {
         memoryNote = string `\n\nPreviously found spec URL: ${knownSpecUrl}`;
         if knownSpecRepo is string {
             memoryNote += string `\nGitHub repo: ${knownSpecRepo}`;
             memoryNote += string `\nUse CASE A: fetch the spec URL first to verify it's still valid, ` +
-                          string `then check the repo tree (api.github.com/repos/${knownSpecRepo}/git/trees/HEAD?recursive=1) ` +
-                          string `for any newer version. Return the latest confirmed URL.`;
+                          string `then use the Contents API on the parent folder to check for newer ` +
+                          string `siblings (higher rollout number or higher version). Return the latest confirmed URL.`;
         } else {
             memoryNote += string `\nUse CASE A: fetch this URL first. If valid and latest, return it. ` +
                           string `If it fails or you find a newer version, search from the docs URL.`;
@@ -253,15 +289,27 @@ Follow the strategy in your instructions. Always verify the file content before 
     string model = os:getEnv("CLAUDE_MODEL");
     if model.length() == 0 { model = "claude-sonnet-4-6"; }
 
+    // Per-agent timeout
+    time:Utc agentStart = time:utcNow();
+    int maxTurns = 12;
+    decimal maxSeconds = 180.0;
+
     int turn = 0;
-    while turn < 10 {
+    while turn < maxTurns {
         turn += 1;
+
+        decimal agentElapsed = time:utcDiffSeconds(time:utcNow(), agentStart);
+        if agentElapsed > maxSeconds {
+            log:printInfo(string `  [agent] timeout after ${agentElapsed}s — giving up`);
+            return ();
+        }
+
         log:printInfo(string `  [turn ${turn}]`);
 
         json|error resp = callClaude(anthropicKey, model, messages);
         if resp is error {
             log:printInfo(string `  [claude error] ${resp.message()}`);
-            break;
+            return ();
         }
 
         string stopReason = "";
@@ -273,7 +321,6 @@ Follow the strategy in your instructions. Always verify the file content before 
             if cb is json[] { blocks = cb; }
         }
 
-        // Separate text and tool_use blocks
         string text = "";
         json[] toolBlocks = [];
         foreach json blk in blocks {
@@ -298,7 +345,7 @@ Follow the strategy in your instructions. Always verify the file content before 
             return pickBestCandidate(text);
         }
         if text.includes("NO_SPEC_FOUND") {
-            log:printInfo("  [claude] declared no spec found");
+            log:printInfo("  [agent] declared no spec found");
             return ();
         }
 
@@ -319,7 +366,8 @@ Follow the strategy in your instructions. Always verify the file content before 
                         json? urlVal = inp["url"];
                         if urlVal is string {
                             if fetched.hasKey(urlVal) {
-                                output = "{\"error\":\"already fetched this URL\"}";
+                                output = "{\"error\":\"already fetched this URL — do not fetch the same URL twice\"}";
+                                log:printInfo(string `    [skip-dup] ${urlVal}`);
                             } else {
                                 fetched[urlVal] = true;
                                 output = executeFetchPage(urlVal);
@@ -333,35 +381,42 @@ Follow the strategy in your instructions. Always verify the file content before 
             continue;
         }
 
-        // end_turn without candidates — nudge once
-        if stopReason == "end_turn" && turn < 9 {
-            messages.push({"role": "assistant", "content": blocks});
-            messages.push({
-                "role": "user",
-                "content": "Output your result now: SPEC_CANDIDATES: followed by the URL(s) you found, or NO_SPEC_FOUND."
-            });
-            continue;
+        // end_turn without candidates — nudge once before giving up
+        if stopReason == "end_turn" {
+            if turn < maxTurns - 1 {
+                log:printInfo("  [agent] end_turn without result — nudging");
+                messages.push({"role": "assistant", "content": blocks});
+                messages.push({
+                    "role": "user",
+                    "content": "Output your result now: SPEC_CANDIDATES: followed by the URL(s) you found, or NO_SPEC_FOUND."
+                });
+                continue;
+            } else {
+                log:printInfo("  [agent] end_turn without result after nudge — giving up");
+                return ();
+            }
         }
 
-        break;
+        // Unexpected stop reason
+        log:printInfo(string `  [agent] unexpected stop_reason='${stopReason}' at turn ${turn} — giving up`);
+        return ();
     }
 
+    log:printInfo(string `  [agent] turn limit (${maxTurns}) reached without result`);
     return ();
 }
 
-// Parse SPEC_CANDIDATES and optional SPEC_REPO from agent output.
-// HEAD-checks each candidate URL; returns the first reachable one.
+// ─── Parse SPEC_CANDIDATES output ────────────────────────────────────────────
+
 function pickBestCandidate(string text) returns SpecResult? {
     int? idx = text.indexOf("SPEC_CANDIDATES:");
     if idx is () { return (); }
     string after = text.substring(idx + 16);
 
-    // Parse SPEC_REPO if present (may appear before or after the URLs)
     string? specRepo = ();
     int? repoIdx = text.indexOf("SPEC_REPO:");
     if repoIdx is int {
         string repoLine = text.substring(repoIdx + 10);
-        // Take just the first line, trimmed
         string[] repoLines = splitLines(repoLine);
         if repoLines.length() > 0 {
             string repo = repoLines[0].trim();
@@ -369,31 +424,35 @@ function pickBestCandidate(string text) returns SpecResult? {
         }
     }
 
-    // If no explicit SPEC_REPO, infer it from the first raw GitHub URL
     string[] urls = [];
     map<boolean> seen = {};
 
     foreach string line in splitLines(after) {
         string t = line.trim();
-        // Stop parsing if we hit SPEC_REPO line
         if t.startsWith("SPEC_REPO:") { break; }
         if !t.startsWith("http") { continue; }
 
-        // Convert any github.com/blob/ links to raw
+        // Normalise any stray github.com/blob/ links to raw
         string url = t;
         if url.includes("github.com/") && url.includes("/blob/") {
-            url = "https://raw.githubusercontent.com/" + url.substring(19);
-            int? blobIdx = url.indexOf("/blob/");
-            if blobIdx is int {
-                url = url.substring(0, blobIdx) + "/" + url.substring(blobIdx + 6);
+            // https://github.com/OWNER/REPO/blob/BRANCH/path
+            // → https://raw.githubusercontent.com/OWNER/REPO/BRANCH/path
+            string stripped = url;
+            int? ghIdx = stripped.indexOf("github.com/");
+            if ghIdx is int {
+                string rest = stripped.substring(ghIdx + 11); // after "github.com/"
+                // rest = "OWNER/REPO/blob/BRANCH/path"
+                string[] parts = splitOn(rest, "/blob/");
+                if parts.length() == 2 {
+                    url = "https://raw.githubusercontent.com/" + parts[0] + "/" + parts[1];
+                }
             }
         }
 
         if !seen.hasKey(url) { seen[url] = true; urls.push(url); }
 
-        // Also add the alternate branch variant (main ↔ master)
+        // Add alternate branch variant for raw GitHub URLs
         if url.includes("raw.githubusercontent.com/") {
-            // Infer repo from URL if not yet known
             if specRepo is () {
                 specRepo = inferRepoFromRawUrl(url);
             }
@@ -416,18 +475,18 @@ function pickBestCandidate(string text) returns SpecResult? {
             log:printInfo(string `  [ok] ${url}`);
             return {specUrl: url, specRepo: specRepo, title: (), apiVersion: (), format: fmt};
         }
+        log:printInfo(string `  [dead] ${url}`);
     }
+
+    log:printInfo("  [agent] all candidate URLs failed HEAD check");
     return ();
 }
 
-// Extract "owner/repo" from a raw.githubusercontent.com URL
 isolated function inferRepoFromRawUrl(string url) returns string? {
-    // https://raw.githubusercontent.com/OWNER/REPO/BRANCH/...
     string prefix = "raw.githubusercontent.com/";
     int? pi = url.indexOf(prefix);
     if pi is () { return (); }
     string rest = url.substring(pi + prefix.length());
-    // rest = "OWNER/REPO/BRANCH/..."
     string[] parts = splitOn(rest, "/");
     if parts.length() >= 2 {
         return parts[0] + "/" + parts[1];
@@ -468,7 +527,6 @@ function callClaude(string apiKey, string model, json[] messages) returns json|e
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
-// GET — returns body text or error
 function httpGetBody(string url) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
     map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
@@ -488,7 +546,6 @@ function httpGetBody(string url) returns string|error {
     return check resp.getTextPayload();
 }
 
-// HEAD — returns true if the URL responds with HTTP 200
 function headOk(string url) returns boolean {
     do {
         string ghToken = os:getEnv("GITHUB_TOKEN");
@@ -614,7 +671,6 @@ isolated function splitLines(string s) returns string[] {
     return splitOn(s, "\n");
 }
 
-// Escape a string value for JSON embedding
 isolated function jsonEsc(string s) returns string {
     string r = "";
     foreach string ch in s {
@@ -628,12 +684,10 @@ isolated function jsonEsc(string s) returns string {
     return r;
 }
 
-// JSON string literal
 isolated function jsonStr(string s) returns string {
     return "\"" + jsonEsc(s) + "\"";
 }
 
-// JSON array of strings
 isolated function jsonArr(string[] items) returns string {
     string r = "[";
     boolean first = true;

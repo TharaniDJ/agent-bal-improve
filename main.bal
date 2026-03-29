@@ -61,9 +61,8 @@ public function main() returns error? {
     io:println(BAR);
     io:println("");
 
-    // Load existing results to merge into (we always re-run, but we keep history)
+    // Load existing results to merge into
     ResultEntry[] existing = loadResults(outFile);
-    // Index by name for fast lookup
     map<int> existingIdx = {};
     int ei = 0;
     foreach ResultEntry r in existing {
@@ -81,7 +80,6 @@ public function main() returns error? {
         string label = c.targetTitle is string ? string `${c.name} / ${c.targetTitle ?: ""}` : c.name;
         io:println(string `[${lp(idx.toString(), 2)}/${connectors.length()}] ${label}`);
 
-        // Pass previously found URL + repo so the agent can verify/update efficiently
         string? knownUrl = ();
         string? knownRepo = ();
         if existingIdx.hasKey(c.name) {
@@ -141,7 +139,6 @@ public function main() returns error? {
         }
         io:println("");
 
-        // Update or append
         if existingIdx.hasKey(c.name) {
             int eIdx = existingIdx.get(c.name);
             results[eIdx] = entry;
