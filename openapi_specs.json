@@ -791,5 +791,18 @@
         "status": "found",
         "checkedAt": "2026-03-29T16:04:17.408764Z",
         "elapsedSeconds": 29.4
+    },
+    {
+        "name": "Zoom Scheduler",
+        "docsUrl": "https://developers.zoom.us/docs/api/rest/zoom-scheduler-api/",
+        "targetTitle": null,
+        "specUrl": null,
+        "specRepo": null,
+        "title": null,
+        "apiVersion": null,
+        "format": null,
+        "status": "not_found",
+        "checkedAt": "2026-03-29T16:08:50.152938Z",
+        "elapsedSeconds": 59.6
     }
 ]
