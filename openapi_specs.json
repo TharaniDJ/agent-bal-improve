@@ -635,5 +635,57 @@
         "status": "found",
         "checkedAt": "2026-03-29T13:34:19.490668Z",
         "elapsedSeconds": 37.3
+    },
+    {
+        "name": "Mailchimp Marketing",
+        "docsUrl": "https://mailchimp.com/developer/marketing/api/",
+        "targetTitle": null,
+        "specUrl": "https://api.mailchimp.com/schema/3.0/Swagger.json?expand",
+        "specRepo": "mailchimp/mailchimp-client-lib-codegen",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-03-29T14:01:33.872025Z",
+        "elapsedSeconds": 113.6
+    },
+    {
+        "name": "Mailchimp Transactional",
+        "docsUrl": "https://mailchimp.com/developer/transactional/api/",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/mailchimp/mailchimp-client-lib-codegen/main/spec/transactional.openapi.json",
+        "specRepo": "mailchimp/mailchimp-client-lib-codegen",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-03-29T14:01:58.198368Z",
+        "elapsedSeconds": 24.3
+    },
+    {
+        "name": "Microsoft OneDrive",
+        "docsUrl": "https://learn.microsoft.com/en-us/onedrive/developer/rest-api/",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/microsoftgraph/msgraph-sdk-powershell/main/openApiDocs/v1.0/Files.yml",
+        "specRepo": "microsoftgraph/msgraph-sdk-powershell",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-03-29T14:02:38.119018Z",
+        "elapsedSeconds": 39.9
+    },
+    {
+        "name": "OpenAI",
+        "docsUrl": "https://platform.openai.com/docs/api-reference/introduction",
+        "targetTitle": null,
+        "specUrl": "https://app.stainless.com/api/spec/documented/openai/openapi.documented.yml",
+        "specRepo": "openai/openai-openapi",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-03-29T14:03:27.535168Z",
+        "elapsedSeconds": 49.4
     }
 ]
