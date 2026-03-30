@@ -1,5 +1,5 @@
 // connectors.bal
 
 public final Connector[] & readonly ALL_CONNECTORS = [
-    {name: "Zoom Scheduler",docsUrl: "https://developers.zoom.us/docs/api/rest/zoom-scheduler-api/",                       targetTitle: ()}
+    {name: "PayPal Subscriptions",           docsUrl: "https://developer.paypal.com/docs/api/subscriptions/v1/",                                               targetTitle: ()}
 ];
