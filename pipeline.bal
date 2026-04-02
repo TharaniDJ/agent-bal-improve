@@ -1,6 +1,41 @@
+// pipeline.bal
+// Three-step chained pipeline for finding and verifying OpenAPI specs.
+//
+// Step 1: stepQuickVerify    — pure HTTP, stable/direct endpoints only
+// Step 2: stepGithubVersionCheck — Claude, GitHub-hosted specs with known URL
+// Step 3: stepDiscovery      — Claude, find candidates from scratch
+// Step 4: stepContentVerify  — pure HTTP, confirm discovered candidates
+
 import ballerina/http;
 import ballerina/log;
 import ballerina/os;
+
+// ─── Known SPA domains ───────────────────────────────────────────────────────
+// These docs pages are JavaScript SPAs — fetching them wastes time and returns
+// nothing useful. When detected, Claude skips straight to GitHub inference.
+
+isolated function isKnownSpa(string url) returns boolean {
+    string lo = url.toLowerAscii();
+    string[] spaDomains = [
+        "docs.stripe.com",
+        "developers.zoom.us",
+        "developer.paypal.com",
+        "developers.docusign.com",
+        "developer.salesforce.com",
+        "platform.openai.com",
+        "developers.google.com",
+        "learn.microsoft.com",
+        "discord.com/developers",
+        "developer.atlassian.com",
+        "developer.x.com",
+        "developer.twitter.com",
+        "developers.hubspot.com"
+    ];
+    foreach string domain in spaDomains {
+        if lo.includes(domain) { return true; }
+    }
+    return false;
+}
 
 // ─── STEP 1: Quick Verify (stable/direct URLs only) ──────────────────────────
 // Only for non-GitHub direct endpoints like:
@@ -12,8 +47,7 @@ import ballerina/os;
 //   dac-static.atlassian.com/...
 //
 // These are CDN/API endpoints that always serve the current version.
-// A HEAD check is sufficient — no need to look for newer siblings.
-//
+// A HEAD check + content sniff is sufficient — no sibling checking needed.
 // Returns the existing SpecResult if valid, null if we need further checking.
 
 public function stepQuickVerify(
@@ -26,7 +60,7 @@ public function stepQuickVerify(
         return ();
     }
 
-    // GitHub-hosted URLs need version-sibling checking — skip Step 1
+    // GitHub-hosted URLs need version-sibling checking — handled by step 2
     if knownSpecUrl.includes("raw.githubusercontent.com") {
         log:printInfo("  [step1] GitHub URL — skipping to version check");
         return ();
@@ -39,7 +73,7 @@ public function stepQuickVerify(
         return ();
     }
 
-    // Confirm it still looks like a spec
+    // Confirm it still looks like a spec (first 2KB is enough)
     string|error body = httpGetBodyPartial(knownSpecUrl, 2000);
     if body is error {
         log:printInfo("  [step1] content check failed — triggering re-discovery");
@@ -68,11 +102,13 @@ public function stepQuickVerify(
 
 // ─── STEP 2: GitHub Version Check ────────────────────────────────────────────
 // For GitHub-hosted specs with a known URL.
-// Checks the parent folder structure for newer rollout/version siblings.
-// This replaces what CASE A did in the original agent.
+// Fetches the known URL to confirm it is still valid, then checks the parent
+// folder for newer rollout/version siblings.
 //
-// Returns the latest confirmed URL (could be the same as known, or a newer one).
-// Returns null if the known URL is dead and we need full re-discovery.
+// Returns:
+//   SpecResult  → valid URL (same or newer)
+//   "DEAD"      → known URL is gone, need full re-discovery
+//   ()          → agent error/timeout
 
 const string GITHUB_CHECK_SYSTEM_PROMPT =
     "You are checking whether a GitHub-hosted OpenAPI spec URL is still the LATEST version.\n" +
@@ -88,7 +124,8 @@ const string GITHUB_CHECK_SYSTEM_PROMPT =
     "  - Never fetch github.com/blob/ or github.com/tree/ pages\n" +
     "\n" +
     "## Your task\n" +
-    "1. First fetch the known spec URL to confirm it is still valid (contains openapi: or swagger:)\n" +
+    "1. First fetch the known spec URL to confirm it is still valid\n" +
+    "   (content must contain openapi: or swagger: or \"openapi\" or \"swagger\")\n" +
     "   - If 404 or not a spec → output DEAD\n" +
     "   - If valid → proceed to step 2\n" +
     "2. Check the parent folder using the Contents API for newer siblings:\n" +
@@ -97,32 +134,27 @@ const string GITHUB_CHECK_SYSTEM_PROMPT =
     "     * List that folder → pick highest vN subfolder\n" +
     "     * Get download_url of the spec file\n" +
     "   - For flat folders (all spec files at same level):\n" +
-    "     * List the folder → if multiple spec files, pick most recently updated\n" +
+    "     * List the folder → pick the spec file (prefer openapi/swagger in name)\n" +
     "   - SKIP folders named: staging, prerelease, preview, draft, canary, beta, alpha, rc\n" +
-    "   - SKIP ISO date folders (YYYY-MM) unless no vN folder exists\n" +
+    "   - SKIP ISO date folders (YYYY-MM or YYYY-MM-DD) unless no vN folder exists\n" +
     "3. If a newer version exists → return it. Otherwise → return the original.\n" +
     "\n" +
-    "## Output format — EXACTLY one of these\n" +
-    "When the spec is valid (same or newer):\n" +
+    "## Output format — EXACTLY one of these, no other text\n" +
+    "\n" +
+    "When the spec is valid (same or newer URL found):\n" +
     "GITHUB_CHECK_RESULT:\n" +
     "URL: https://raw-download-url\n" +
     "REPO: owner/repo\n" +
     "\n" +
-    "When the known URL is dead or not a spec:\n" +
+    "When the known URL is dead or content is not a spec:\n" +
     "GITHUB_CHECK_RESULT:\n" +
-    "DEAD\n" +
-    "\n" +
-    "No explanatory text before or after.";
+    "DEAD\n";
 
 public function stepGithubVersionCheck(
     string knownSpecUrl,
     string? knownSpecRepo,
     string anthropicKey
 ) returns SpecResult?|string {
-    // Returns:
-    //   SpecResult  → found valid (same or newer) URL
-    //   "DEAD"      → known URL is dead, need full re-discovery
-    //   ()          → error/timeout, treat as dead
 
     log:printInfo(string `  [step2] GitHub version check: ${knownSpecUrl}`);
 
@@ -130,7 +162,7 @@ public function stepGithubVersionCheck(
         ? string `\nGitHub repo: ${knownSpecRepo}`
         : "";
 
-    // Infer repo from URL if not provided
+    // Infer repo from URL if not explicitly provided
     string? inferredRepo = knownSpecRepo;
     if inferredRepo is () {
         inferredRepo = inferRepoFromRawUrl(knownSpecUrl);
@@ -257,7 +289,6 @@ function parseGithubCheckResult(string text, string? fallbackRepo) returns SpecR
 
     if url.length() == 0 { return (); }
 
-    // HEAD check to confirm
     if !headOk(url) {
         log:printInfo(string `  [step2] returned URL failed HEAD check: ${url}`);
         return ();
@@ -277,6 +308,7 @@ function parseGithubCheckResult(string text, string? fallbackRepo) returns SpecR
 // ─── STEP 3: Discovery Agent ──────────────────────────────────────────────────
 // Only runs when no known URL exists, or known URL is dead.
 // Fetches the docs URL and finds candidate raw download URLs.
+// SPA domains are detected and Claude is told to skip the docs fetch entirely.
 
 const string DISCOVERY_SYSTEM_PROMPT =
     "You are an expert at finding publicly available OpenAPI/Swagger specification files.\n" +
@@ -284,6 +316,22 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "## Your ONLY job\n" +
     "Find the raw download URL(s) for the OpenAPI/Swagger spec file.\n" +
     "Return a structured list of candidate URLs — do NOT verify content.\n" +
+    "\n" +
+    "## Known SPA domains — do NOT fetch docs page, go straight to GitHub\n" +
+    "These docs pages are JavaScript SPAs that return no useful content.\n" +
+    "If the docs URL belongs to one of these, skip step 1 and go directly to step 3:\n" +
+    "  - docs.stripe.com\n" +
+    "  - developers.zoom.us\n" +
+    "  - developer.paypal.com\n" +
+    "  - developers.docusign.com\n" +
+    "  - developer.salesforce.com\n" +
+    "  - platform.openai.com\n" +
+    "  - developers.google.com\n" +
+    "  - learn.microsoft.com\n" +
+    "  - discord.com/developers\n" +
+    "  - developer.atlassian.com\n" +
+    "  - developer.x.com\n" +
+    "  - developer.twitter.com\n" +
     "\n" +
     "## Tool: fetch_page\n" +
     "Fetches a URL. Returns:\n" +
@@ -296,14 +344,21 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "  - Never fetch the same URL twice\n" +
     "  - Never fetch github.com/blob/ or github.com/tree/ (use Contents API instead)\n" +
     "  - GitHub Contents API: https://api.github.com/repos/OWNER/REPO/contents/PATH\n" +
-    "  - If docs page is a JavaScript SPA (empty page_text < 200 chars):\n" +
-    "    * If knownSpecRepo is given → go directly to Contents API for that repo\n" +
-    "    * Otherwise infer org/repo from the docs URL and try Contents API\n" +
+    "  - If docs page returns empty page_text (under 200 chars) with no spec_links\n" +
+    "    → it is a SPA; go immediately to GitHub Contents API\n" +
     "\n" +
     "## Strategy\n" +
-    "1. Fetch the docs URL\n" +
-    "2. If it has spec_links → extract raw download URLs\n" +
-    "3. If it is a SPA or GitHub link → use Contents API to find spec files\n" +
+    "1. If docs URL is a known SPA domain → skip to step 3\n" +
+    "2. Otherwise fetch the docs URL\n" +
+    "   - If spec_links found → extract raw download URLs → done\n" +
+    "   - If SPA detected (empty page_text) → go to step 3\n" +
+    "   - If GitHub repo link found → go to step 3\n" +
+    "3. GitHub search:\n" +
+    "   - If knownSpecRepo given → use Contents API on that repo\n" +
+    "   - Otherwise infer org/repo from the API name or docs URL\n" +
+    "     e.g. 'Stripe' → try api.github.com/repos/stripe/openapi/contents/\n" +
+    "     e.g. 'Zoom Meetings' → try api.github.com/repos/zoom/zoom-api-description/contents/\n" +
+    "   - Drill into folders to find .yaml/.json spec files\n" +
     "4. For versioned folders (Rollouts/<number>/<vN>/):\n" +
     "   - Pick highest numeric rollout folder\n" +
     "   - Pick highest vN subfolder\n" +
@@ -340,8 +395,15 @@ public function stepDiscovery(
         ? string `\nKnown GitHub repo: ${knownSpecRepo} — start here with Contents API.`
         : "";
 
+    // Tell Claude explicitly when the docs URL is a known SPA
+    string spaNote = isKnownSpa(docsUrl)
+        ? string `\nNOTE: The docs URL (${docsUrl}) is a JavaScript SPA — do NOT fetch it. ` +
+          "Go directly to the GitHub Contents API. " +
+          "Infer the GitHub org/repo from the API name if knownSpecRepo is not provided."
+        : "";
+
     string userMsg = string `Find the OpenAPI spec download URL for: ${apiName}
-Docs URL: ${docsUrl}${targetNote}${repoHint}
+Docs URL: ${docsUrl}${targetNote}${repoHint}${spaNote}
 
 Return DISCOVERY_RESULT with raw download URLs only.`;
 
@@ -462,7 +524,7 @@ function parseDiscoveryResult(string text) returns DiscoveryResult {
             if u.startsWith("http") && !seen.hasKey(u) {
                 seen[u] = true;
                 urls.push(u);
-                // Add alternate branch variant
+                // Add alternate branch variant for raw GitHub URLs
                 if u.includes("raw.githubusercontent.com/") {
                     string alt = "";
                     if u.includes("/main/") {
@@ -483,8 +545,8 @@ function parseDiscoveryResult(string text) returns DiscoveryResult {
 }
 
 // ─── STEP 4: Content Verify ───────────────────────────────────────────────────
-// Given a list of candidate URLs from discovery, verify the content
-// and return the first valid one. Pure HTTP — no Claude needed.
+// Pure HTTP — no Claude needed.
+// Confirms each candidate URL actually contains a valid spec.
 
 public function stepContentVerify(
     DiscoveryResult discovery
@@ -543,9 +605,13 @@ function httpGetBodyPartial(string url, int maxBytes) returns string|error {
     if url.includes("api.github.com") && ghToken.length() > 0 {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
+
+    // Raw content files get 20s, docs pages get 8s
+    decimal timeoutSecs = isRawContentUrl(url) ? 20.0 : 8.0;
+
     http:Client cl = check new (url, {
         followRedirects: {enabled: true, maxCount: 5},
-        timeout: 15,
+        timeout: timeoutSecs,
         secureSocket: {enable: true}
     });
     http:Response resp = check cl->get("", headers);

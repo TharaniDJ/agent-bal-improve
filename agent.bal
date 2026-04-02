@@ -1,171 +1,16 @@
 // agent.bal
 // Agentic OpenAPI spec finder powered by Claude.
 //
-// On every run the agent:
-//   1. Navigates to find (or re-verify) the spec URL
-//   2. Checks whether the previously found URL is still the LATEST version
-//   3. Returns the confirmed latest URL
-//
-// Memory (knownSpecUrl + knownSpecRepo) is passed in from openapi_specs.json
-// so the agent can go straight to the source and verify, not search blind.
+// Shared utilities used by all pipeline steps:
+//   - executeFetchPage()  — tool handler (HTML/JSON/YAML fetch + parse)
+//   - callClaude()        — Anthropic API call
+//   - httpGetBody()       — raw HTTP GET with smart timeouts
+//   - headOk()            — HEAD check
+//   - HTML/string utils
 
 import ballerina/http;
 import ballerina/log;
 import ballerina/os;
-
-// ─── System prompt ────────────────────────────────────────────────────────────
-
-const string SYSTEM_PROMPT =
-    "You are an expert at finding the LATEST publicly available OpenAPI or Swagger " +
-    "specification file for any REST API. You run on a schedule and must verify on " +
-    "every run that the spec URL you return is still the most recently updated one.\n" +
-    "\n" +
-    "## What you are looking for\n" +
-    "A directly downloadable YAML or JSON file whose root-level content contains " +
-    "`openapi:` (e.g. `openapi: 3.1.0`) or `swagger:` (e.g. `swagger: '2.0'`). " +
-    "It must be publicly accessible without authentication.\n" +
-    "\n" +
-    "## Tool: fetch_page\n" +
-    "Fetches any URL. Returns:\n" +
-    "  - HTML page  → { spec_links: [...], page_text: \"...\", other_links: [...] }\n" +
-    "  - JSON file  → { type: \"json\", content: \"<first 12 KB>\" }\n" +
-    "  - YAML file  → { type: \"yaml\", content: \"<first 12 KB>\" }\n" +
-    "\n" +
-    "Strict rules — violations waste your limited fetches:\n" +
-    "  - Maximum 8 fetch_page calls per task.\n" +
-    "  - Never fetch the same URL twice.\n" +
-    "  - Never fetch github.com/blob/ or github.com/tree/ pages (HTML, not files).\n" +
-    "  - To list files in a GitHub repo folder, use the Contents API:\n" +
-    "      https://api.github.com/repos/OWNER/REPO/contents/PATH\n" +
-    "    This returns a JSON array of {name, type, path, download_url} entries.\n" +
-    "  - Only use the recursive tree API when you need a full flat listing:\n" +
-    "      https://api.github.com/repos/OWNER/REPO/git/trees/HEAD?recursive=1\n" +
-    "    WARNING: large repos truncate this response. If truncated is true or " +
-    "    expected paths are missing, switch to the Contents API to drill in folder by folder.\n" +
-    "\n" +
-    "## How to find the spec (generic strategy)\n" +
-    "\n" +
-    "─────────────────────────────────────────────────────────────────\n" +
-    "CASE A: A previously found spec URL is given in the user message\n" +
-    "─────────────────────────────────────────────────────────────────\n" +
-    "Your goal is to confirm the URL is still the LATEST version.\n" +
-    "\n" +
-    "  A1. Fetch the previously found URL.\n" +
-    "      - If 404 or no spec content → spec moved; go to CASE B.\n" +
-    "      - If valid spec content → note info.version.\n" +
-    "\n" +
-    "  A2. Check for newer versions based on hosting:\n" +
-    "\n" +
-    "      If URL is raw.githubusercontent.com/OWNER/REPO/...:\n" +
-    "        - Use the Contents API to check the parent folder for newer siblings.\n" +
-    "        - Apply the VERSIONED FOLDER NAVIGATION rules below to find the latest.\n" +
-    "        - If something newer exists → return that. Otherwise → return original.\n" +
-    "\n" +
-    "      If URL is a direct API endpoint (not GitHub):\n" +
-    "        - Stable URL always serves the current version.\n" +
-    "        - If A1 confirmed valid → return immediately.\n" +
-    "\n" +
-    "─────────────────────────────────────────────────────────────────\n" +
-    "CASE B: No previously found URL or previous URL is invalid\n" +
-    "─────────────────────────────────────────────────────────────────\n" +
-    "\n" +
-    "  B1. Fetch the docs URL.\n" +
-    "      - If it returns nearly empty page_text (under 200 chars) or no spec_links\n" +
-    "        and no github.com links → the page is likely a JavaScript SPA that\n" +
-    "        cannot be parsed by this tool. In that case:\n" +
-    "          * Check if the user message contains a knownSpecRepo — if so,\n" +
-    "            go directly to the Contents API for that repo.\n" +
-    "          * Otherwise try: https://api.github.com/repos/<inferred-org>/<inferred-repo>/contents/\n" +
-    "      - If it returns a GitHub repo URL → use Contents API, not HTML tree page.\n" +
-    "      - If it returns direct spec links → follow them.\n" +
-    "\n" +
-    "  B2. Follow the most promising lead:\n" +
-    "      - github.com/OWNER/REPO → Contents API → drill down → find spec file\n" +
-    "      - Direct .yaml/.json URL → fetch and verify openapi:/swagger: content\n" +
-    "      - Docs/reference/download page → follow → look for spec links\n" +
-    "\n" +
-    "  B3. When selecting among multiple spec files → prefer:\n" +
-    "      - Names containing: openapi, swagger, api, spec\n" +
-    "      - Root, /spec/, /openapi/, /defs/, /swagger/ over deeply nested paths\n" +
-    "      - Avoid: test/, example/, archive/ directories\n" +
-    "      - Apply VERSIONED FOLDER NAVIGATION rules if version folders exist\n" +
-    "\n" +
-    "  B4. Always verify: fetch the candidate and confirm `openapi:` or `swagger:`.\n" +
-    "\n" +
-    "  B5. If the page lists multiple specs, the user message will name a Target spec.\n" +
-    "      Match by title and fetch only that spec.\n" +
-    "\n" +
-    "─────────────────────────────────────────────────────────────────\n" +
-    "VERSIONED FOLDER NAVIGATION\n" +
-    "─────────────────────────────────────────────────────────────────\n" +
-    "Some repos use a layered folder structure to track rollouts and versions.\n" +
-    "A common pattern is:\n" +
-    "  <spec-root>/\n" +
-    "    Rollouts/           ← or: releases/, builds/, snapshots/, or similar\n" +
-    "      <id-or-number>/   ← rollout/build identifier\n" +
-    "        <version>/      ← API version subfolder\n" +
-    "          <spec-file>   ← the actual spec\n" +
-    "\n" +
-    "Use these rules at each level:\n" +
-    "\n" +
-    "RULE 1 — Rollout/build folder (numeric IDs like 148901, 130902, 424):\n" +
-    "  - List the parent folder with the Contents API.\n" +
-    "  - Collect all entries where type==\"dir\" and name matches: all digits (^[0-9]+$).\n" +
-    "  - Pick the folder with the HIGHEST numeric value — that is the latest rollout.\n" +
-    "  - Ignore folders whose names contain letters, dots, or hyphens at this level\n" +
-    "    (those are named releases, not numeric build IDs).\n" +
-    "\n" +
-    "RULE 2 — Version subfolder (v3, v4, v2, etc.):\n" +
-    "  - List the chosen rollout folder with the Contents API.\n" +
-    "  - Collect all entries where type==\"dir\" and name matches a semantic version\n" +
-    "    pattern: v followed by one or more digits (^v[0-9]+$), e.g. v2, v3, v4.\n" +
-    "  - Pick the folder with the HIGHEST version number.\n" +
-    "  - AVOID folders whose names look like calendar dates (e.g. 2026-09, 2025-01).\n" +
-    "    These are typically pre-release or preview snapshots, not official releases.\n" +
-    "    Only use a date-named folder if NO vN folder exists at all.\n" +
-    "\n" +
-    "RULE 3 — Spec file selection within a version folder:\n" +
-    "  - List the version folder with the Contents API.\n" +
-    "  - Collect all entries where type==\"file\" and name ends in .json, .yaml, or .yml.\n" +
-    "  - Prefer files whose name contains: openapi, swagger, api, spec.\n" +
-    "  - If multiple remain, prefer the one with the most recent commit (Contents API\n" +
-    "    returns a commit sha; use git/commits?path=... to compare if needed).\n" +
-    "  - Use the download_url field from the Contents API response as the raw URL.\n" +
-    "    Do not construct raw.githubusercontent.com URLs manually when you have\n" +
-    "    download_url available — it is already the correct raw download link.\n" +
-    "\n" +
-    "RULE 4 — Intermediate staging or prerelease folders to skip:\n" +
-    "  - Skip any folder named: staging, prerelease, pre-release, preview, draft,\n" +
-    "    canary, beta, alpha, rc, nightly, snapshot, internal, wip.\n" +
-    "  - Skip folders whose names are ISO dates (YYYY-MM-DD or YYYY-MM) unless\n" +
-    "    they are the ONLY option after exhausting all vN candidates.\n" +
-    "\n" +
-    "─────────────────────────────────────────────────────────────────\n" +
-    "Choosing the best when multiple candidates exist\n" +
-    "─────────────────────────────────────────────────────────────────\n" +
-    "  - Highest OpenAPI/Swagger version wins (3.1.0 > 3.0.0 > 2.0)\n" +
-    "  - YAML preferred over JSON at the same version\n" +
-    "  - Default branch (main/master) preferred over tagged releases\n" +
-    "\n" +
-    "─────────────────────────────────────────────────────────────────\n" +
-    "Output format — output EXACTLY one of these blocks, nothing else\n" +
-    "─────────────────────────────────────────────────────────────────\n" +
-    "When you have found and verified the spec URL:\n" +
-    "\n" +
-    "SPEC_CANDIDATES:\n" +
-    "https://primary-confirmed-url\n" +
-    "https://alternate-branch-url\n" +
-    "\n" +
-    "Optionally add a SPEC_REPO line for GitHub-hosted specs:\n" +
-    "SPEC_REPO: owner/repo\n" +
-    "\n" +
-    "When no publicly accessible spec exists after exhausting your search:\n" +
-    "NO_SPEC_FOUND\n" +
-    "\n" +
-    "Rules:\n" +
-    "  - Only raw download URLs (never github.com/blob/ links)\n" +
-    "  - Include both /main/ and /master/ branch variants for raw.githubusercontent.com URLs\n" +
-    "  - No explanatory text before or after the output block\n";
 
 // ─── Tool definition ─────────────────────────────────────────────────────────
 
@@ -187,7 +32,7 @@ final json FETCH_PAGE_TOOL = {
     }
 };
 
-// ─── fetch_page tool handler ─────────────────────────────────────────────────
+// ─── fetch_page tool handler ──────────────────────────────────────────────────
 
 function executeFetchPage(string url) returns string {
     log:printInfo(string `    [fetch] ${url}`);
@@ -243,11 +88,8 @@ function executeFetchPage(string url) returns string {
     return string `{"type":"html","spec_links":${jsonArr(specLinks)},"page_text":${jsonStr(txtSnippet)},"other_links":${jsonArr(otherLinks.slice(0, otherCap))}}`;
 }
 
-// ─── Agent loop ───────────────────────────────────────────────────────────────
-
-
-
 // ─── Parse SPEC_CANDIDATES output ────────────────────────────────────────────
+// Kept for any legacy usage; pipeline uses parseDiscoveryResult/parseGithubCheckResult
 
 function pickBestCandidate(string text) returns SpecResult? {
     int? idx = text.indexOf("SPEC_CANDIDATES:");
@@ -273,16 +115,11 @@ function pickBestCandidate(string text) returns SpecResult? {
         if t.startsWith("SPEC_REPO:") { break; }
         if !t.startsWith("http") { continue; }
 
-        // Normalise any stray github.com/blob/ links to raw
         string url = t;
         if url.includes("github.com/") && url.includes("/blob/") {
-            // https://github.com/OWNER/REPO/blob/BRANCH/path
-            // → https://raw.githubusercontent.com/OWNER/REPO/BRANCH/path
-            string stripped = url;
-            int? ghIdx = stripped.indexOf("github.com/");
+            int? ghIdx = url.indexOf("github.com/");
             if ghIdx is int {
-                string rest = stripped.substring(ghIdx + 11); // after "github.com/"
-                // rest = "OWNER/REPO/blob/BRANCH/path"
+                string rest = url.substring(ghIdx + 11);
                 string[] parts = splitOn(rest, "/blob/");
                 if parts.length() == 2 {
                     url = "https://raw.githubusercontent.com/" + parts[0] + "/" + parts[1];
@@ -292,7 +129,6 @@ function pickBestCandidate(string text) returns SpecResult? {
 
         if !seen.hasKey(url) { seen[url] = true; urls.push(url); }
 
-        // Add alternate branch variant for raw GitHub URLs
         if url.includes("raw.githubusercontent.com/") {
             if specRepo is () {
                 specRepo = inferRepoFromRawUrl(url);
@@ -335,7 +171,7 @@ isolated function inferRepoFromRawUrl(string url) returns string? {
     return ();
 }
 
-// ─── Claude API call ─────────────────────────────────────────────────────────
+// ─── Claude API call ──────────────────────────────────────────────────────────
 
 function callClaude(string apiKey, string model, json[] messages, string systemPrompt) returns json|error {
     http:Client cl = check new ("https://api.anthropic.com", {
@@ -368,6 +204,16 @@ function callClaude(string apiKey, string model, json[] messages, string systemP
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
+// Determines if a URL points to a raw spec/API file (not an HTML docs page).
+// These get the full 20s timeout. HTML docs pages get 8s and a 150KB body cap.
+isolated function isRawContentUrl(string url) returns boolean {
+    string lo = url.toLowerAscii();
+    if lo.includes("api.github.com") { return true; }
+    if lo.endsWith(".yaml") || lo.endsWith(".yml") { return true; }
+    if lo.endsWith(".json") { return true; }
+    return false;
+}
+
 function httpGetBody(string url) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
     map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
@@ -375,16 +221,35 @@ function httpGetBody(string url) returns string|error {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
+    // Raw content (GitHub API, spec files) gets 20s.
+    // HTML docs pages get 8s — we only need enough to extract links.
+    // SPAs will either timeout quickly or return a tiny shell we detect immediately.
+    decimal timeoutSecs = isRawContentUrl(url) ? 20.0 : 8.0;
+
     http:Client cl = check new (url, {
         followRedirects: {enabled: true, maxCount: 5},
-        timeout: 20,
+        timeout: timeoutSecs,
         secureSocket: {enable: true}
     });
     http:Response resp = check cl->get("", headers);
     if resp.statusCode != 200 {
         return error(string `HTTP ${resp.statusCode}`);
     }
-    return check resp.getTextPayload();
+
+    string body = check resp.getTextPayload();
+
+    // For HTML docs pages cap at 150 KB — enough to extract all links,
+    // but skips the megabytes of minified JS bundled into SPA pages.
+    if !isRawContentUrl(url) {
+        string t = body.trim();
+        boolean looksLikeHtml = !t.startsWith("openapi:") && !t.startsWith("swagger:") &&
+                                !t.startsWith("---") && !t.startsWith("{") && !t.startsWith("[");
+        if looksLikeHtml && body.length() > 150000 {
+            return body.substring(0, 150000);
+        }
+    }
+
+    return body;
 }
 
 function headOk(string url) returns boolean {
