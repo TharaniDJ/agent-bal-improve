@@ -802,8 +802,8 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-02T15:22:13.605572Z",
-        "elapsedSeconds": 79.6
+        "checkedAt": "2026-04-02T16:56:15.291590Z",
+        "elapsedSeconds": 64.6
     },
     {
         "name": "PayPal Subscriptions",
@@ -887,13 +887,13 @@
         "name": "Zoom Meetings",
         "docsUrl": "https://developers.zoom.us/docs/api/meetings/",
         "targetTitle": null,
-        "specUrl": null,
-        "specRepo": null,
+        "specUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/zoom.us/2.0.0/openapi.yaml",
+        "specRepo": "APIs-guru/openapi-directory",
         "title": null,
         "apiVersion": null,
-        "format": null,
-        "status": "not_found",
-        "checkedAt": "2026-04-02T15:20:53.951083Z",
-        "elapsedSeconds": 54.8
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-02T16:55:10.665701Z",
+        "elapsedSeconds": 36.7
     }
 ]
