@@ -118,6 +118,24 @@ const string SYSTEM_PROMPT =
     "      Match by title and fetch only that spec.\n" +
     "\n" +
     "─────────────────────────────────────────────────────────────────\n" +
+    "LAST RESORT: APIs-guru OpenAPI Directory\n" +
+    "─────────────────────────────────────────────────────────────────\n" +
+    "If you have exhausted all primary sources (official GitHub repo, docs page,\n" +
+    "direct endpoints) and still have not found a valid spec, check the APIs-guru\n" +
+    "OpenAPI directory as a last resort. It aggregates community-maintained specs\n" +
+    "for hundreds of APIs and is a reliable fallback.\n" +
+    "\n" +
+    "  1. List the top-level provider folders:\n" +
+    "       https://api.github.com/repos/APIs-guru/openapi-directory/contents/APIs\n" +
+    "  2. Find the folder matching the API provider name (e.g. zoom.us, stripe.com).\n" +
+    "  3. Drill into the version subfolder and get the download_url of openapi.yaml.\n" +
+    "  4. Fetch and verify the file contains openapi: or swagger:.\n" +
+    "  5. Return that URL if valid.\n" +
+    "\n" +
+    "Only use APIs-guru after all other approaches have failed — do not use it\n" +
+    "as a first option when an official source may exist.\n" +
+    "\n" +
+    "─────────────────────────────────────────────────────────────────\n" +
     "Output format — output EXACTLY one of these blocks, nothing else\n" +
     "─────────────────────────────────────────────────────────────────\n" +
     "When you have found and verified the spec URL:\n" +
@@ -258,7 +276,8 @@ public function runAgent(
     string userMsg = string `Find the latest OpenAPI spec file URL for: ${apiName}
 Docs URL: ${docsUrl}${targetNote}${spaNote}${memoryNote}
 
-Follow the strategy in your instructions. Always verify the file content before outputting SPEC_CANDIDATES.`;
+Follow the strategy in your instructions. Always verify the file content before outputting SPEC_CANDIDATES.
+If you cannot find the spec through primary sources, use the APIs-guru directory as a last resort before giving up.`;
 
     json[] messages = [{"role": "user", "content": userMsg}];
     map<boolean> fetched = {};
@@ -364,7 +383,8 @@ Follow the strategy in your instructions. Always verify the file content before 
                 messages.push({"role": "assistant", "content": blocks});
                 messages.push({
                     "role": "user",
-                    "content": "Output your result now: SPEC_CANDIDATES: followed by the URL(s) you found, or NO_SPEC_FOUND."
+                    "content": "Output your result now: SPEC_CANDIDATES: followed by the URL(s) you found, or NO_SPEC_FOUND. " +
+                               "If you have not yet tried the APIs-guru directory, try it before giving up."
                 });
                 continue;
             } else {
