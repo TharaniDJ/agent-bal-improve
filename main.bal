@@ -11,6 +11,7 @@
 //   DRY_RUN=true bal run .
 
 import ballerina/io;
+import ballerina/log;
 import ballerina/os;
 import ballerina/time;
 import ballerina/file;
@@ -92,30 +93,63 @@ public function main() returns error? {
         }
 
         time:Utc t0 = time:utcNow();
-        SpecResult? result = runAgent(
-            docsUrl       = c.docsUrl,
-            apiName       = c.name,
-            targetTitle   = c.targetTitle,
-            anthropicKey  = apiKey,
-            knownSpecUrl  = knownUrl,
-            knownSpecRepo = knownRepo
-        );
+        SpecResult? finalResult = ();
+
+        if knownUrl is string {
+            // ── Path A: We have a known URL ──────────────────────────────────────
+
+            if !knownUrl.includes("raw.githubusercontent.com") {
+                // A1: Stable direct endpoint (Candid, Elastic, Mailchimp, Trello etc.)
+                // HEAD check + content sniff is enough — these always serve current version
+                log:printInfo("  [pipeline] path=stable-endpoint");
+                finalResult = stepQuickVerify(knownUrl, knownRepo);
+
+                if finalResult is () {
+                    // URL is dead — fall through to full re-discovery
+                    log:printInfo("  [pipeline] stable URL dead — re-discovering");
+                    DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+                    finalResult = stepContentVerify(disc);
+                }
+
+            } else {
+                // A2: GitHub raw URL — must check for newer version in parent folder
+                log:printInfo("  [pipeline] path=github-version-check");
+                SpecResult?|string checkResult = stepGithubVersionCheck(knownUrl, knownRepo, apiKey);
+
+                if checkResult is SpecResult {
+                    // Got a valid result (same or newer URL)
+                    finalResult = checkResult;
+                } else {
+                    // "DEAD" or () — need full re-discovery
+                    log:printInfo("  [pipeline] GitHub check failed — re-discovering");
+                    DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+                    finalResult = stepContentVerify(disc);
+                }
+            }
+
+        } else {
+            // ── Path B: No known URL — full discovery ────────────────────────────
+            log:printInfo("  [pipeline] path=full-discovery");
+            DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+            finalResult = stepContentVerify(disc);
+        }
+
         decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
 
         ResultEntry entry;
-        if result is SpecResult {
+        if finalResult is SpecResult {
             found += 1;
-            io:println(string `  => ${result.specUrl}`);
-            io:println(string `     format=${result.format} | ${elapsed}s`);
+            io:println(string `  => ${finalResult.specUrl}`);
+            io:println(string `     format=${finalResult.format} | ${elapsed}s`);
             entry = {
                 name:          c.name,
                 docsUrl:       c.docsUrl,
                 targetTitle:   c.targetTitle,
-                specUrl:       result.specUrl,
-                specRepo:      result.specRepo,
-                title:         result.title,
-                apiVersion:    result.apiVersion,
-                format:        result.format,
+                specUrl:       finalResult.specUrl,
+                specRepo:      finalResult.specRepo,
+                title:         finalResult.title,
+                apiVersion:    finalResult.apiVersion,
+                format:        finalResult.format,
                 status:        "found",
                 checkedAt:     time:utcToString(time:utcNow()),
                 elapsedSeconds: elapsed

@@ -12,7 +12,6 @@
 import ballerina/http;
 import ballerina/log;
 import ballerina/os;
-import ballerina/time;
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
@@ -246,165 +245,7 @@ function executeFetchPage(string url) returns string {
 
 // ─── Agent loop ───────────────────────────────────────────────────────────────
 
-public function runAgent(
-    string docsUrl,
-    string apiName,
-    string? targetTitle,
-    string anthropicKey,
-    string? knownSpecUrl = (),
-    string? knownSpecRepo = ()
-) returns SpecResult? {
 
-    if anthropicKey.length() == 0 {
-        log:printInfo("  ERROR: ANTHROPIC_API_KEY not set");
-        return ();
-    }
-
-    string targetNote = targetTitle is string
-        ? string `\n\nTarget spec: This docs page lists multiple API specs. ` +
-          string `Find ONLY the one titled '${targetTitle}'. Ignore all others.`
-        : "";
-
-    string memoryNote = "";
-    if knownSpecUrl is string {
-        memoryNote = string `\n\nPreviously found spec URL: ${knownSpecUrl}`;
-        if knownSpecRepo is string {
-            memoryNote += string `\nGitHub repo: ${knownSpecRepo}`;
-            memoryNote += string `\nUse CASE A: fetch the spec URL first to verify it's still valid, ` +
-                          string `then use the Contents API on the parent folder to check for newer ` +
-                          string `siblings (higher rollout number or higher version). Return the latest confirmed URL.`;
-        } else {
-            memoryNote += string `\nUse CASE A: fetch this URL first. If valid and latest, return it. ` +
-                          string `If it fails or you find a newer version, search from the docs URL.`;
-        }
-    }
-
-    string userMsg = string `Find the latest OpenAPI spec file URL for: ${apiName}
-Docs URL: ${docsUrl}${targetNote}${memoryNote}
-
-Follow the strategy in your instructions. Always verify the file content before outputting SPEC_CANDIDATES.`;
-
-    json[] messages = [{"role": "user", "content": userMsg}];
-    map<boolean> fetched = {};
-    string model = os:getEnv("CLAUDE_MODEL");
-    if model.length() == 0 { model = "claude-sonnet-4-6"; }
-
-    // Per-agent timeout
-    time:Utc agentStart = time:utcNow();
-    int maxTurns = 12;
-    decimal maxSeconds = 180.0;
-
-    int turn = 0;
-    while turn < maxTurns {
-        turn += 1;
-
-        decimal agentElapsed = time:utcDiffSeconds(time:utcNow(), agentStart);
-        if agentElapsed > maxSeconds {
-            log:printInfo(string `  [agent] timeout after ${agentElapsed}s — giving up`);
-            return ();
-        }
-
-        log:printInfo(string `  [turn ${turn}]`);
-
-        json|error resp = callClaude(anthropicKey, model, messages);
-        if resp is error {
-            log:printInfo(string `  [claude error] ${resp.message()}`);
-            return ();
-        }
-
-        string stopReason = "";
-        json[] blocks = [];
-        if resp is map<json> {
-            json? sr = resp["stop_reason"];
-            if sr is string { stopReason = sr; }
-            json? cb = resp["content"];
-            if cb is json[] { blocks = cb; }
-        }
-
-        string text = "";
-        json[] toolBlocks = [];
-        foreach json blk in blocks {
-            if blk is map<json> {
-                json? t = blk["type"];
-                if t == "text" {
-                    json? tv = blk["text"];
-                    if tv is string { text += tv; }
-                } else if t == "tool_use" {
-                    toolBlocks.push(blk);
-                }
-            }
-        }
-
-        if text.length() > 0 {
-            int preview = text.length() > 600 ? 600 : text.length();
-            log:printInfo(string `  [claude] ${text.substring(0, preview)}${text.length() > 600 ? "..." : ""}`);
-        }
-
-        // Done — found candidates
-        if text.includes("SPEC_CANDIDATES:") {
-            return pickBestCandidate(text);
-        }
-        if text.includes("NO_SPEC_FOUND") {
-            log:printInfo("  [agent] declared no spec found");
-            return ();
-        }
-
-        // Tool use turn
-        if stopReason == "tool_use" && toolBlocks.length() > 0 {
-            messages.push({"role": "assistant", "content": blocks});
-            json[] results = [];
-
-            foreach json tb in toolBlocks {
-                if tb is map<json> {
-                    string toolId = "";
-                    json? tid = tb["id"];
-                    if tid is string { toolId = tid; }
-
-                    string output = "{\"error\":\"invalid call\"}";
-                    json? inp = tb["input"];
-                    if inp is map<json> {
-                        json? urlVal = inp["url"];
-                        if urlVal is string {
-                            if fetched.hasKey(urlVal) {
-                                output = "{\"error\":\"already fetched this URL — do not fetch the same URL twice\"}";
-                                log:printInfo(string `    [skip-dup] ${urlVal}`);
-                            } else {
-                                fetched[urlVal] = true;
-                                output = executeFetchPage(urlVal);
-                            }
-                        }
-                    }
-                    results.push({"type": "tool_result", "tool_use_id": toolId, "content": output});
-                }
-            }
-            messages.push({"role": "user", "content": results});
-            continue;
-        }
-
-        // end_turn without candidates — nudge once before giving up
-        if stopReason == "end_turn" {
-            if turn < maxTurns - 1 {
-                log:printInfo("  [agent] end_turn without result — nudging");
-                messages.push({"role": "assistant", "content": blocks});
-                messages.push({
-                    "role": "user",
-                    "content": "Output your result now: SPEC_CANDIDATES: followed by the URL(s) you found, or NO_SPEC_FOUND."
-                });
-                continue;
-            } else {
-                log:printInfo("  [agent] end_turn without result after nudge — giving up");
-                return ();
-            }
-        }
-
-        // Unexpected stop reason
-        log:printInfo(string `  [agent] unexpected stop_reason='${stopReason}' at turn ${turn} — giving up`);
-        return ();
-    }
-
-    log:printInfo(string `  [agent] turn limit (${maxTurns}) reached without result`);
-    return ();
-}
 
 // ─── Parse SPEC_CANDIDATES output ────────────────────────────────────────────
 
@@ -496,7 +337,7 @@ isolated function inferRepoFromRawUrl(string url) returns string? {
 
 // ─── Claude API call ─────────────────────────────────────────────────────────
 
-function callClaude(string apiKey, string model, json[] messages) returns json|error {
+function callClaude(string apiKey, string model, json[] messages, string systemPrompt) returns json|error {
     http:Client cl = check new ("https://api.anthropic.com", {
         timeout: 90,
         secureSocket: {enable: true}
@@ -504,8 +345,8 @@ function callClaude(string apiKey, string model, json[] messages) returns json|e
 
     json body = {
         "model": model,
-        "max_tokens": 2048,
-        "system": SYSTEM_PROMPT,
+        "max_tokens": 1024,
+        "system": systemPrompt,
         "tools": [FETCH_PAGE_TOOL],
         "messages": messages
     };
