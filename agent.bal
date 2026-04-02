@@ -1,6 +1,4 @@
 // agent.bal
-// Agentic OpenAPI spec finder powered by Claude.
-//
 // Shared utilities used by all pipeline steps:
 //   - executeFetchPage()  — tool handler (HTML/JSON/YAML fetch + parse)
 //   - callClaude()        — Anthropic API call
@@ -89,7 +87,6 @@ function executeFetchPage(string url) returns string {
 }
 
 // ─── Parse SPEC_CANDIDATES output ────────────────────────────────────────────
-// Kept for any legacy usage; pipeline uses parseDiscoveryResult/parseGithubCheckResult
 
 function pickBestCandidate(string text) returns SpecResult? {
     int? idx = text.indexOf("SPEC_CANDIDATES:");
@@ -204,7 +201,7 @@ function callClaude(string apiKey, string model, json[] messages, string systemP
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
-// Determines if a URL points to a raw spec/API file (not an HTML docs page).
+// Returns true for raw spec/API file URLs (GitHub API, .yaml, .yml, .json).
 // These get the full 20s timeout. HTML docs pages get 8s and a 150KB body cap.
 isolated function isRawContentUrl(string url) returns boolean {
     string lo = url.toLowerAscii();
@@ -224,7 +221,7 @@ function httpGetBody(string url) returns string|error {
     // Raw content (GitHub API, spec files) gets 20s.
     // HTML docs pages get 8s — we only need enough to extract links.
     // SPAs will either timeout quickly or return a tiny shell we detect immediately.
-    decimal timeoutSecs = isRawContentUrl(url) ? 20.0 : 8.0;
+    decimal timeoutSecs = isRawContentUrl(url) ? 20 : 8;
 
     http:Client cl = check new (url, {
         followRedirects: {enabled: true, maxCount: 5},

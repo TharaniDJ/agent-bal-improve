@@ -1,10 +1,10 @@
 // pipeline.bal
 // Three-step chained pipeline for finding and verifying OpenAPI specs.
 //
-// Step 1: stepQuickVerify    — pure HTTP, stable/direct endpoints only
-// Step 2: stepGithubVersionCheck — Claude, GitHub-hosted specs with known URL
-// Step 3: stepDiscovery      — Claude, find candidates from scratch
-// Step 4: stepContentVerify  — pure HTTP, confirm discovered candidates
+// Step 1: stepQuickVerify         — pure HTTP, stable/direct endpoints only
+// Step 2: stepGithubVersionCheck  — Claude, GitHub-hosted specs with known URL
+// Step 3: stepDiscovery           — Claude, find candidates from scratch
+// Step 4: stepContentVerify       — pure HTTP, confirm discovered candidates
 
 import ballerina/http;
 import ballerina/log;
@@ -103,7 +103,7 @@ public function stepQuickVerify(
 // ─── STEP 2: GitHub Version Check ────────────────────────────────────────────
 // For GitHub-hosted specs with a known URL.
 // Fetches the known URL to confirm it is still valid, then checks the parent
-// folder for newer rollout/version siblings.
+// folder for newer siblings.
 //
 // Returns:
 //   SpecResult  → valid URL (same or newer)
@@ -124,19 +124,16 @@ const string GITHUB_CHECK_SYSTEM_PROMPT =
     "  - Never fetch github.com/blob/ or github.com/tree/ pages\n" +
     "\n" +
     "## Your task\n" +
-    "1. First fetch the known spec URL to confirm it is still valid\n" +
+    "1. Fetch the known spec URL to confirm it is still valid\n" +
     "   (content must contain openapi: or swagger: or \"openapi\" or \"swagger\")\n" +
     "   - If 404 or not a spec → output DEAD\n" +
     "   - If valid → proceed to step 2\n" +
     "2. Check the parent folder using the Contents API for newer siblings:\n" +
-    "   - For versioned folder structures (Rollouts/<number>/<vN>/):\n" +
-    "     * List the Rollouts folder → pick highest numeric folder\n" +
-    "     * List that folder → pick highest vN subfolder\n" +
-    "     * Get download_url of the spec file\n" +
-    "   - For flat folders (all spec files at same level):\n" +
-    "     * List the folder → pick the spec file (prefer openapi/swagger in name)\n" +
-    "   - SKIP folders named: staging, prerelease, preview, draft, canary, beta, alpha, rc\n" +
-    "   - SKIP ISO date folders (YYYY-MM or YYYY-MM-DD) unless no vN folder exists\n" +
+    "   - List the parent folder and look for other spec files or subfolders\n" +
+    "   - If multiple spec files exist, prefer the one with the highest version\n" +
+    "     or most recently updated (use git/commits?path=... if needed)\n" +
+    "   - Prefer files whose name contains: openapi, swagger, api, spec\n" +
+    "   - Skip folders or files that appear to be staging, preview, or draft versions\n" +
     "3. If a newer version exists → return it. Otherwise → return the original.\n" +
     "\n" +
     "## Output format — EXACTLY one of these, no other text\n" +
@@ -319,7 +316,7 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "\n" +
     "## Known SPA domains — do NOT fetch docs page, go straight to GitHub\n" +
     "These docs pages are JavaScript SPAs that return no useful content.\n" +
-    "If the docs URL belongs to one of these, skip step 1 and go directly to step 3:\n" +
+    "If the docs URL belongs to one of these, skip fetching it and go directly to step 3:\n" +
     "  - docs.stripe.com\n" +
     "  - developers.zoom.us\n" +
     "  - developer.paypal.com\n" +
@@ -345,24 +342,26 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "  - Never fetch github.com/blob/ or github.com/tree/ (use Contents API instead)\n" +
     "  - GitHub Contents API: https://api.github.com/repos/OWNER/REPO/contents/PATH\n" +
     "  - If docs page returns empty page_text (under 200 chars) with no spec_links\n" +
-    "    → it is a SPA; go immediately to GitHub Contents API\n" +
+    "    → it is a SPA; go immediately to the GitHub Contents API\n" +
     "\n" +
     "## Strategy\n" +
     "1. If docs URL is a known SPA domain → skip to step 3\n" +
-    "2. Otherwise fetch the docs URL\n" +
+    "2. Otherwise fetch the docs URL:\n" +
     "   - If spec_links found → extract raw download URLs → done\n" +
     "   - If SPA detected (empty page_text) → go to step 3\n" +
     "   - If GitHub repo link found → go to step 3\n" +
     "3. GitHub search:\n" +
-    "   - If knownSpecRepo given → use Contents API on that repo\n" +
-    "   - Otherwise infer org/repo from the API name or docs URL\n" +
-    "     e.g. 'Stripe' → try api.github.com/repos/stripe/openapi/contents/\n" +
-    "     e.g. 'Zoom Meetings' → try api.github.com/repos/zoom/zoom-api-description/contents/\n" +
+    "   - If knownSpecRepo given → use Contents API on that repo directly\n" +
+    "   - Otherwise infer the GitHub org/repo from the API name or docs URL\n" +
+    "     (e.g. 'Stripe' → try api.github.com/repos/stripe/openapi/contents/)\n" +
     "   - Drill into folders to find .yaml/.json spec files\n" +
-    "4. For versioned folders (Rollouts/<number>/<vN>/):\n" +
-    "   - Pick highest numeric rollout folder\n" +
-    "   - Pick highest vN subfolder\n" +
-    "   - Use download_url from Contents API response\n" +
+    "   - Prefer files whose name contains: openapi, swagger, api, spec\n" +
+    "   - Prefer files in root, /spec/, /openapi/, /defs/ over deeply nested paths\n" +
+    "   - Skip folders named: test, example, archive, staging, preview, draft\n" +
+    "4. When selecting among multiple spec files:\n" +
+    "   - Prefer highest OpenAPI/Swagger version (3.1.0 > 3.0.0 > 2.0)\n" +
+    "   - Prefer YAML over JSON at the same version\n" +
+    "   - Prefer default branch (main/master) over tagged releases\n" +
     "5. If the user message names a Target spec → match by title, ignore others\n" +
     "\n" +
     "## Output format — EXACTLY this, nothing else\n" +
@@ -395,7 +394,7 @@ public function stepDiscovery(
         ? string `\nKnown GitHub repo: ${knownSpecRepo} — start here with Contents API.`
         : "";
 
-    // Tell Claude explicitly when the docs URL is a known SPA
+    // Tell Claude explicitly when the docs URL is a known SPA so it skips the fetch
     string spaNote = isKnownSpa(docsUrl)
         ? string `\nNOTE: The docs URL (${docsUrl}) is a JavaScript SPA — do NOT fetch it. ` +
           "Go directly to the GitHub Contents API. " +
@@ -607,7 +606,7 @@ function httpGetBodyPartial(string url, int maxBytes) returns string|error {
     }
 
     // Raw content files get 20s, docs pages get 8s
-    decimal timeoutSecs = isRawContentUrl(url) ? 20.0 : 8.0;
+    decimal timeoutSecs = isRawContentUrl(url) ? 20 : 8;
 
     http:Client cl = check new (url, {
         followRedirects: {enabled: true, maxCount: 5},
