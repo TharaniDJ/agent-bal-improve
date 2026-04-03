@@ -167,5 +167,18 @@
         "status": "found",
         "checkedAt": "2026-04-02T12:13:41.819869Z",
         "elapsedSeconds": 41.2
+    },
+    {
+        "name": "PayPal Invoices",
+        "docsUrl": "https://developer.paypal.com/docs/api/invoicing/v2/",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/paypal/paypal-rest-api-specifications/main/openapi/invoicing_v2.json",
+        "specRepo": "paypal/paypal-rest-api-specifications",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-03T05:25:54.990758Z",
+        "elapsedSeconds": 13.9
     }
 ]
