@@ -316,19 +316,7 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "\n" +
     "## Known SPA domains — do NOT fetch docs page, go straight to GitHub\n" +
     "These docs pages are JavaScript SPAs that return no useful content.\n" +
-    "If the docs URL belongs to one of these, skip fetching it and go directly to step 3:\n" +
-    "  - docs.stripe.com\n" +
-    "  - developers.zoom.us\n" +
-    "  - developer.paypal.com\n" +
-    "  - developers.docusign.com\n" +
-    "  - developer.salesforce.com\n" +
-    "  - platform.openai.com\n" +
-    "  - developers.google.com\n" +
-    "  - learn.microsoft.com\n" +
-    "  - discord.com/developers\n" +
-    "  - developer.atlassian.com\n" +
-    "  - developer.x.com\n" +
-    "  - developer.twitter.com\n" +
+
     "\n" +
     "## Tool: fetch_page\n" +
     "Fetches a URL. Returns:\n" +
