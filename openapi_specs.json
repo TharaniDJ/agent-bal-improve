@@ -24,5 +24,18 @@
         "status": "found",
         "checkedAt": "2026-04-03T05:54:58.303001Z",
         "elapsedSeconds": 112.5
+    },
+    {
+        "name": "OpenAI",
+        "docsUrl": "https://platform.openai.com/docs/api-reference/introduction",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/openai/openai-openapi/2025-03-21/openapi.yaml",
+        "specRepo": "openai/openai-openapi",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-03T06:09:25.822036Z",
+        "elapsedSeconds": 35.0
     }
 ]
