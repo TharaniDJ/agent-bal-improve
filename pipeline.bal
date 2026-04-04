@@ -6,40 +6,12 @@
 // Step 3: stepDiscovery           — Claude, find candidates from scratch
 // Step 4: stepContentVerify       — pure HTTP, confirm discovered candidates
 //
-// SPA handling: known SPA domains are fetched via the headless browser
-// service (browser-service/server.js) instead of being skipped. This allows
-// Claude to read the actual rendered page and find "Download OpenAPI" links.
+// SPA handling is transparent: httpGetBody() in agent.bal detects thin HTML
+// responses and retries via the headless browser service automatically.
 
 import ballerina/http;
 import ballerina/log;
 import ballerina/os;
-
-// ─── Known SPA domains ───────────────────────────────────────────────────────
-// These docs pages are JavaScript SPAs — fetching them wastes time and returns
-// nothing useful. When detected, Claude skips straight to GitHub inference.
-
-isolated function isKnownSpaDomain(string url) returns boolean {
-    string lo = url.toLowerAscii();
-    string[] spaDomains = [
-        "docs.stripe.com",
-        "developers.zoom.us",
-        "developer.paypal.com",
-        "developers.docusign.com",
-        "developer.salesforce.com",
-        "platform.openai.com",
-        "developers.google.com",
-        "learn.microsoft.com",
-        "discord.com/developers",
-        "developer.atlassian.com",
-        "developer.x.com",
-        "developer.twitter.com",
-        "developers.hubspot.com"
-    ];
-    foreach string domain in spaDomains {
-        if lo.includes(domain) { return true; }
-    }
-    return false;
-}
 
 // ─── STEP 1: Quick Verify (stable/direct URLs only) ──────────────────────────
 // Only for non-GitHub direct endpoints like:
@@ -302,10 +274,8 @@ function parseGithubCheckResult(string text, string? fallbackRepo) returns SpecR
 }
 
 // ─── STEP 3: Discovery Agent ──────────────────────────────────────────────────
-// The primary strategy is ALWAYS to fetch the docs URL first.
-// For SPA domains, the headless browser service renders the page so Claude
-// can read the actual content including "Download OpenAPI" buttons.
-// GitHub search and APIs-guru are fallbacks only.
+// Always fetches the docs URL first (SPA detection is handled transparently
+// by httpGetBody in agent.bal). GitHub search and APIs-guru are fallbacks only.
 
 const string DISCOVERY_SYSTEM_PROMPT =
     "You are an expert at finding publicly available OpenAPI/Swagger specification files.\n" +
@@ -389,23 +359,8 @@ public function stepDiscovery(
         ? string `\nKnown GitHub repo: ${knownSpecRepo} — start here with Contents API.`
         : "";
 
-    // Note whether browser service is available for SPA pages
-    string browserNote = "";
-    if isKnownSpaDomain(docsUrl) {
-        if isBrowserServiceAvailable() {
-            browserNote = string `\nNOTE: The docs URL (${docsUrl}) is a JavaScript SPA. ` +
-                "The browser service is running so fetch_page will return the fully rendered page. " +
-                "Fetch the docs URL first — look for 'Download OpenAPI' links or buttons in the response.";
-        } else {
-            browserNote = string `\nNOTE: The docs URL (${docsUrl}) is a JavaScript SPA and the ` +
-                "browser service is not running. The docs page may return limited content. " +
-                "Try fetching it anyway, but if page_text is empty or under 200 chars with no spec_links, " +
-                "fall back to GitHub search using the knownSpecRepo or infer the repo from the API name.";
-        }
-    }
-
     string userMsg = string `Find the OpenAPI spec download URL for: ${apiName}
-Docs URL: ${docsUrl}${targetNote}${repoHint}${browserNote}
+Docs URL: ${docsUrl}${targetNote}${repoHint}
 
 IMPORTANT: Always fetch the docs URL first. It often has a direct download link for the OpenAPI spec.
 Return DISCOVERY_RESULT with raw download URLs only.`;

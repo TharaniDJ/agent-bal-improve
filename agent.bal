@@ -2,7 +2,7 @@
 // Shared utilities used by all pipeline steps:
 //   - executeFetchPage()  — tool handler (HTML/JSON/YAML fetch + parse)
 //   - callClaude()        — Anthropic API call
-//   - httpGetBody()       — raw HTTP GET, routes SPA domains through headless browser
+//   - httpGetBody()       — raw HTTP GET, with dynamic SPA detection + browser fallback
 //   - headOk()            — HEAD check
 //   - HTML/string utils
 
@@ -35,87 +35,75 @@ final json FETCH_PAGE_TOOL = {
 // Start it with: node browser-service/server.js
 const int BROWSER_SERVICE_PORT = 3456;
 
-// ─── Known SPA domains ────────────────────────────────────────────────────────
-// These docs pages are JavaScript SPAs that return empty/error responses to
-// plain HTTP requests. They are routed through the headless browser service
-// which renders the page fully before returning the HTML.
-isolated function isKnownSpa(string url) returns boolean {
-    string lo = url.toLowerAscii();
-    string[] spaDomains = [
-        "docs.stripe.com",
-        "developers.zoom.us",
-        "developer.paypal.com",
-        "developers.docusign.com",
-        "developer.salesforce.com",
-        "platform.openai.com",
-        "developers.google.com",
-        "learn.microsoft.com",
-        "discord.com/developers",
-        "developer.atlassian.com",
-        "developer.x.com",
-        "developer.twitter.com",
-        "developers.hubspot.com"
-    ];
-    foreach string domain in spaDomains {
-        if lo.includes(domain) { return true; }
-    }
-    return false;
-}
-
 // ─── fetch_page tool handler ──────────────────────────────────────────────────
+
+const string EMPTY_HTML_RESULT = "{\"type\":\"html\",\"spec_links\":[],\"page_text\":\"\",\"other_links\":[]}";
 
 function executeFetchPage(string url) returns string {
     log:printInfo(string `    [fetch] ${url}`);
 
-    string|error body = httpGetBody(url);
-    if body is error {
-        log:printInfo(string `      error: ${body.message()}`);
-        return string `{"error":"fetch failed: ${jsonEsc(body.message())}"}`;
-    }
-
-    string lo = url.toLowerAscii();
-
-    // YAML
-    if lo.endsWith(".yaml") || lo.endsWith(".yml") {
-        string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
-        return string `{"type":"yaml","content":${jsonStr(snippet)}}`;
-    }
-
-    // JSON / GitHub API
-    if lo.endsWith(".json") || lo.includes("api.github.com") || lo.includes("application/json") {
-        string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
-        return string `{"type":"json","content":${jsonStr(snippet)}}`;
-    }
-
-    // Detect by content if extension is ambiguous
-    string trimmed = body.trim();
-    if trimmed.startsWith("openapi:") || trimmed.startsWith("swagger:") || trimmed.startsWith("---") {
-        string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
-        return string `{"type":"yaml","content":${jsonStr(snippet)}}`;
-    }
-    if trimmed.startsWith("{") || trimmed.startsWith("[") {
-        string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
-        return string `{"type":"json","content":${jsonStr(snippet)}}`;
-    }
-
-    // HTML — extract links and text
-    string[] specLinks = [];
-    string[] otherLinks = [];
-    string[] allLinks = extractHrefs(body, url);
-
-    foreach string lnk in allLinks {
-        if isSpecLink(lnk) {
-            specLinks.push(lnk);
-        } else {
-            otherLinks.push(lnk);
+    do {
+        string|error body = httpGetBody(url);
+        if body is error {
+            log:printInfo(string `      error: ${body.message()}`);
+            // For HTML docs pages return an empty-but-valid HTML result so Claude can
+            // continue reasoning (fall back to GitHub). For spec/API files return the
+            // error so Claude knows the URL is unreachable.
+            if !isRawContentUrl(url) {
+                return EMPTY_HTML_RESULT;
+            }
+            return string `{"error":"fetch failed: ${jsonEsc(body.message())}"}`;
         }
+
+        string lo = url.toLowerAscii();
+
+        // YAML
+        if lo.endsWith(".yaml") || lo.endsWith(".yml") {
+            string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
+            return string `{"type":"yaml","content":${jsonStr(snippet)}}`;
+        }
+
+        // JSON / GitHub API
+        if lo.endsWith(".json") || lo.includes("api.github.com") || lo.includes("application/json") {
+            string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
+            return string `{"type":"json","content":${jsonStr(snippet)}}`;
+        }
+
+        // Detect by content if extension is ambiguous
+        string trimmed = body.trim();
+        if trimmed.startsWith("openapi:") || trimmed.startsWith("swagger:") || trimmed.startsWith("---") {
+            string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
+            return string `{"type":"yaml","content":${jsonStr(snippet)}}`;
+        }
+        if trimmed.startsWith("{") || trimmed.startsWith("[") {
+            string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
+            return string `{"type":"json","content":${jsonStr(snippet)}}`;
+        }
+
+        // HTML — extract links and text
+        string[] specLinks = [];
+        string[] otherLinks = [];
+        string[] allLinks = extractHrefs(body, url);
+
+        foreach string lnk in allLinks {
+            if isSpecLink(lnk) {
+                specLinks.push(lnk);
+            } else {
+                otherLinks.push(lnk);
+            }
+        }
+
+        string txt = htmlText(body);
+        string txtSnippet = txt.length() > 3000 ? txt.substring(0, 3000) : txt;
+        int otherCap = otherLinks.length() > 60 ? 60 : otherLinks.length();
+
+        return string `{"type":"html","spec_links":${jsonArr(specLinks)},"page_text":${jsonStr(txtSnippet)},"other_links":${jsonArr(otherLinks.slice(0, otherCap))}}`;
+    } on fail error e {
+        // Safety net: unexpected error during fetch or HTML parsing.
+        // Always return valid JSON so Claude is never left waiting.
+        log:printInfo(string `      [fetch] unexpected error: ${e.message()}`);
+        return EMPTY_HTML_RESULT;
     }
-
-    string txt = htmlText(body);
-    string txtSnippet = txt.length() > 3000 ? txt.substring(0, 3000) : txt;
-    int otherCap = otherLinks.length() > 60 ? 60 : otherLinks.length();
-
-    return string `{"type":"html","spec_links":${jsonArr(specLinks)},"page_text":${jsonStr(txtSnippet)},"other_links":${jsonArr(otherLinks.slice(0, otherCap))}}`;
 }
 
 // ─── Parse SPEC_CANDIDATES output ────────────────────────────────────────────
@@ -254,11 +242,11 @@ isolated function isBrowserServiceAvailable() returns boolean {
 }
 
 // Fetches a SPA URL via the headless browser service.
-// Returns the rendered HTML, or an error if the service is unavailable.
+// Returns the rendered HTML, or an error if the service is unavailable or slow.
+// Timeout is intentionally short — fail fast rather than block the pipeline.
 function httpGetBodyViaBrowser(string url) returns string|error {
     log:printInfo(string `    [browser-fetch] ${url}`);
-    http:Client cl = check new (string `http://localhost:${BROWSER_SERVICE_PORT}`, {timeout: 45});
-    string encodedUrl = url; // Ballerina http client handles query param encoding
+    http:Client cl = check new (string `http://localhost:${BROWSER_SERVICE_PORT}`, {timeout: 20});
     http:Response resp = check cl->get(string `/fetch?url=${url}`);
     if resp.statusCode != 200 {
         string errBody = check resp.getTextPayload();
@@ -281,6 +269,7 @@ function httpGetBodyViaBrowser(string url) returns string|error {
     return error("Browser service returned unexpected response");
 }
 
+
 function httpGetBody(string url) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
     map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
@@ -288,45 +277,43 @@ function httpGetBody(string url) returns string|error {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
-    // Route known SPA domains through the headless browser service if available.
-    // This allows the page to fully render its JavaScript before we extract links.
-    if isKnownSpa(url) {
-        if isBrowserServiceAvailable() {
-            return httpGetBodyViaBrowser(url);
-        } else {
-            log:printInfo(string `    [spa-warn] Browser service not running — falling back to plain HTTP for ${url}`);
-            log:printInfo("    [spa-warn] Start with: node browser-service/server.js");
-            // Fall through to plain HTTP — will likely get limited content but we try anyway
+    // Raw content (GitHub API, spec files): plain HTTP only, no browser needed.
+    if isRawContentUrl(url) {
+        http:Client cl = check new (url, {
+            followRedirects: {enabled: true, maxCount: 5},
+            timeout: 20,
+            secureSocket: {enable: true}
+        });
+        http:Response resp = check cl->get("", headers);
+        if resp.statusCode != 200 {
+            return error(string `HTTP ${resp.statusCode}`);
         }
+        return check resp.getTextPayload();
     }
 
-    // Plain HTTP for non-SPA URLs and as fallback when browser service is down.
-    // Raw content (GitHub API, spec files) gets 20s.
-    // HTML docs pages get 8s.
-    decimal timeoutSecs = isRawContentUrl(url) ? 20 : 8;
+    // HTML docs pages always go through the headless browser service.
+    // This handles SPAs, JS-rendered pages, and any site that blocks plain HTTP —
+    // without needing to know in advance which domains require it.
+    if isBrowserServiceAvailable() {
+        return httpGetBodyViaBrowser(url);
+    }
 
+    // Browser service not running — fall back to plain HTTP with a short timeout.
+    log:printInfo(string `    [browser-warn] browser service not running — plain HTTP fallback for ${url}`);
+    log:printInfo("    [browser-warn] Start with: node browser-service/server.js");
     http:Client cl = check new (url, {
         followRedirects: {enabled: true, maxCount: 5},
-        timeout: timeoutSecs,
+        timeout: 8,
         secureSocket: {enable: true}
     });
     http:Response resp = check cl->get("", headers);
     if resp.statusCode != 200 {
         return error(string `HTTP ${resp.statusCode}`);
     }
-
     string body = check resp.getTextPayload();
-
-    // For HTML docs pages cap at 150 KB
-    if !isRawContentUrl(url) {
-        string t = body.trim();
-        boolean looksLikeHtml = !t.startsWith("openapi:") && !t.startsWith("swagger:") &&
-                                !t.startsWith("---") && !t.startsWith("{") && !t.startsWith("[");
-        if looksLikeHtml && body.length() > 150000 {
-            return body.substring(0, 150000);
-        }
+    if body.length() > 150000 {
+        return body.substring(0, 150000);
     }
-
     return body;
 }
 
