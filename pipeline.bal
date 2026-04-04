@@ -278,10 +278,11 @@ function parseGithubCheckResult(string text, string? fallbackRepo) returns SpecR
 // by httpGetBody in agent.bal). GitHub search and APIs-guru are fallbacks only.
 
 const string DISCOVERY_SYSTEM_PROMPT =
-    "You are an expert at finding publicly available OpenAPI/Swagger specification files.\n" +
+    "You are an expert at finding publicly available latest updated OpenAPI/Swagger specification files.\n" +
     "\n" +
     "## Your ONLY job\n" +
-    "Find the raw download URL(s) for the OpenAPI/Swagger spec file.\n" +
+    "Find the raw download URL(s) for the LATEST STABLE OpenAPI/Swagger spec file.\n" +
+    "Always target the highest released stable version — never prereleases, betas, RCs, or in-progress specs.\n" +
     "Return a structured list of candidate URLs — do NOT verify content.\n" +
     "\n" +
     "## PRIORITY ORDER — follow this strictly, top to bottom\n" +
@@ -301,6 +302,18 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "    must be returned before any GitHub or APIs-guru link.\n" +
     "  - If the page has a 'Download OpenAPI' button link — that IS the answer, stop here.\n" +
     "\n" +
+    "Version detection from the docs page:\n" +
+    "  - Read the page text to identify which API versions are mentioned\n" +
+    "    (look for version numbers in headings, navigation, URL paths, or page_text)\n" +
+    "  - Identify the HIGHEST stable version — the one marked as 'latest', 'current',\n" +
+    "    'stable', 'GA', or carrying the highest semver/date number\n" +
+    "  - If the page lists versioned spec URLs (e.g. /v2/openapi.yaml, /v3/openapi.yaml),\n" +
+    "    pick the one with the highest stable version number\n" +
+    "  - If there is a changelog or release-notes link on the page, fetch it to confirm\n" +
+    "    which version is the current stable release before choosing a URL\n" +
+    "  - NEVER return a URL that contains: alpha, beta, rc, preview, dev, snapshot,\n" +
+    "    canary, nightly, staging, draft, wip, experimental, pre-release, or next\n" +
+    "\n" +
     "### PRIORITY 2: Vendor's official GitHub repository\n" +
     "Only if the docs page yields nothing useful:\n" +
     "  1. If knownSpecRepo given → use Contents API on that repo directly\n" +
@@ -312,6 +325,26 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "  5. Prefer files whose name contains: openapi, swagger, api, spec\n" +
     "  6. Prefer files in root, /spec/, /openapi/, /defs/ over deeply nested paths\n" +
     "  7. Skip folders named: test, example, archive, staging, preview, draft\n" +
+    "\n" +
+    "Versioning strategy — ALWAYS do this when you have a vendor repo:\n" +
+    "  a. Understand how the repo publishes spec versions before picking a file.\n" +
+    "     Fetch the repo root via the Contents API and look for patterns such as:\n" +
+    "       - Version-named folders (/v1/, /v2/, /2023-01/, etc.)\n" +
+    "       - Version-named files (openapi-v3.yaml, openapi-2024-10.json)\n" +
+    "       - Versioned branches (release/v2, v3-stable)\n" +
+    "       - GitHub Releases/tags (fetch https://api.github.com/repos/OWNER/REPO/releases\n" +
+    "         or /tags to see published versions)\n" +
+    "  b. Once you understand the versioning pattern, identify the LATEST STABLE version:\n" +
+    "       - For folder-per-version repos: pick the folder with the highest version number\n" +
+    "       - For release/tag-based repos: fetch /releases and pick the latest non-prerelease\n" +
+    "         (prerelease: false in the GitHub API response) or the highest semver tag\n" +
+    "         that does NOT contain: alpha, beta, rc, preview, dev, snapshot, canary, next\n" +
+    "       - For single-file repos that update in place (main/master branch): that file\n" +
+    "         IS the latest version — use it\n" +
+    "  c. Always use raw.githubusercontent.com download URLs pointing at the\n" +
+    "     latest stable commit/tag — NEVER github.com/blob/ links\n" +
+    "  d. If the repo uses GitHub Releases to publish spec files as release assets,\n" +
+    "     use the browser_download_url of the latest non-prerelease release asset\n" +
     "\n" +
     "### PRIORITY 3: Other official vendor sources\n" +
     "Only if docs page AND GitHub both yield nothing:\n" +
@@ -343,10 +376,26 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "  - Never fetch github.com/blob/ or github.com/tree/ (use Contents API instead)\n" +
     "  - GitHub Contents API: https://api.github.com/repos/OWNER/REPO/contents/PATH\n" +
     "\n" +
+    "## Version detection summary\n" +
+    "For ANY source (docs page, GitHub repo, CDN), apply these rules:\n" +
+    "  1. Read the source to understand its versioning scheme before picking a URL\n" +
+    "  2. Always select the HIGHEST stable released version available\n" +
+    "  3. A version is stable if it does NOT carry any of these labels:\n" +
+    "       alpha, beta, rc, preview, dev, snapshot, canary, nightly,\n" +
+    "       staging, draft, wip, experimental, pre-release, next, edge\n" +
+    "  4. For GitHub repos use /releases (prefer prerelease:false) or /tags\n" +
+    "     to find the latest stable tag; \n" +
+    "     when the repo uses explicit release tags\n" +
+    "  5. For versioned-folder repos, pick the numerically/chronologically highest\n" +
+    "     folder name that does not contain a prerelease label\n" +
+    "  6. The returned URL must resolve to the spec at that stable version —\n" +
+    "     never return a URL that might point to work-in-progress content\n" +
+    "\n" +
     "## File selection preferences\n" +
     "  - Prefer highest OpenAPI/Swagger version (3.1.0 > 3.0.0 > 2.0)\n" +
     "  - Prefer YAML over JSON at the same version\n" +
-    "  - Prefer default branch (main/master) over tagged releases\n" +
+    "  - Prefer the latest stable release tag over the default branch when the repo\n" +
+    "    uses explicit versioned releases; prefer default branch otherwise\n" +
     "\n" +
     "## Output format — EXACTLY this, nothing else\n" +
     "DISCOVERY_RESULT:\n" +
