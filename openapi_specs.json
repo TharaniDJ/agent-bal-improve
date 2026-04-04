@@ -4,13 +4,13 @@
         "docsUrl": "https://developer.atlassian.com/cloud/jira/platform/rest/v3/",
         "targetTitle": null,
         "specUrl": "https://dac-static.atlassian.com/cloud/jira/platform/swagger-v3.v3.json",
-        "specRepo": "atlassian/jira-platform-rest-api",
+        "specRepo": "N/A",
         "title": null,
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-04T07:17:13.389061Z",
-        "elapsedSeconds": 31.7
+        "checkedAt": "2026-04-04T17:20:51.286563Z",
+        "elapsedSeconds": 40.0
     },
     {
         "name": "Mailchimp Marketing",
@@ -22,8 +22,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-04T07:18:25.183835Z",
-        "elapsedSeconds": 71.8
+        "checkedAt": "2026-04-04T17:22:02.440776Z",
+        "elapsedSeconds": 71.1
     },
     {
         "name": "Mailchimp Transactional",
@@ -35,8 +35,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-04T07:19:14.515949Z",
-        "elapsedSeconds": 49.3
+        "checkedAt": "2026-04-04T17:23:14.901073Z",
+        "elapsedSeconds": 72.5
     },
     {
         "name": "Microsoft OneDrive",
@@ -48,21 +48,21 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-04T07:20:27.334257Z",
-        "elapsedSeconds": 72.8
+        "checkedAt": "2026-04-04T17:24:50.830029Z",
+        "elapsedSeconds": 95.9
     },
     {
         "name": "OpenAI",
         "docsUrl": "https://platform.openai.com/docs/api-reference/introduction",
         "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/openai.com/1.2.0/openapi.yaml",
-        "specRepo": "APIs-guru/openapi-directory",
+        "specUrl": "https://raw.githubusercontent.com/openai/openai-openapi/2025-03-21/openapi.yaml",
+        "specRepo": "openai/openai-openapi",
         "title": null,
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-04T07:21:04.732872Z",
-        "elapsedSeconds": 37.4
+        "checkedAt": "2026-04-04T17:25:34.331675Z",
+        "elapsedSeconds": 43.5
     },
     {
         "name": "PayPal Invoices",
@@ -74,8 +74,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-04T07:21:38.475595Z",
-        "elapsedSeconds": 33.7
+        "checkedAt": "2026-04-04T17:26:19.165415Z",
+        "elapsedSeconds": 44.8
     },
     {
         "name": "PayPal Orders",
@@ -87,8 +87,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-04T07:22:12.254092Z",
-        "elapsedSeconds": 33.8
+        "checkedAt": "2026-04-04T17:27:03.757888Z",
+        "elapsedSeconds": 44.6
     },
     {
         "name": "PayPal Payments",
@@ -100,8 +100,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-04T07:22:44.594988Z",
-        "elapsedSeconds": 32.3
+        "checkedAt": "2026-04-04T17:27:45.499958Z",
+        "elapsedSeconds": 41.7
     },
     {
         "name": "PayPal Subscriptions",
@@ -113,8 +113,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-04T07:23:20.062680Z",
-        "elapsedSeconds": 35.5
+        "checkedAt": "2026-04-04T17:28:28.910383Z",
+        "elapsedSeconds": 43.4
     },
     {
         "name": "Salesforce Marketing Cloud",
@@ -126,7 +126,7 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-04T07:23:58.463450Z",
-        "elapsedSeconds": 38.4
+        "checkedAt": "2026-04-04T17:29:29.445937Z",
+        "elapsedSeconds": 60.5
     }
 ]
