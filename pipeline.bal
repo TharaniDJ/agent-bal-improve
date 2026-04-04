@@ -6,7 +6,7 @@
 // Step 3: stepDiscovery           — Claude, find candidates from scratch
 // Step 4: stepContentVerify       — pure HTTP, confirm discovered candidates
 //
-// SPA handling: known SPA domains are now fetched via the headless browser
+// SPA handling: known SPA domains are fetched via the headless browser
 // service (browser-service/server.js) instead of being skipped. This allows
 // Claude to read the actual rendered page and find "Download OpenAPI" links.
 
@@ -14,7 +14,45 @@ import ballerina/http;
 import ballerina/log;
 import ballerina/os;
 
+// ─── Known SPA domains ───────────────────────────────────────────────────────
+// These docs pages are JavaScript SPAs — fetching them wastes time and returns
+// nothing useful. When detected, Claude skips straight to GitHub inference.
+
+isolated function isKnownSpaDomain(string url) returns boolean {
+    string lo = url.toLowerAscii();
+    string[] spaDomains = [
+        "docs.stripe.com",
+        "developers.zoom.us",
+        "developer.paypal.com",
+        "developers.docusign.com",
+        "developer.salesforce.com",
+        "platform.openai.com",
+        "developers.google.com",
+        "learn.microsoft.com",
+        "discord.com/developers",
+        "developer.atlassian.com",
+        "developer.x.com",
+        "developer.twitter.com",
+        "developers.hubspot.com"
+    ];
+    foreach string domain in spaDomains {
+        if lo.includes(domain) { return true; }
+    }
+    return false;
+}
+
 // ─── STEP 1: Quick Verify (stable/direct URLs only) ──────────────────────────
+// Only for non-GitHub direct endpoints like:
+//   developer.candid.org/openapi/...
+//   www.elastic.co/docs/api/...
+//   api.mailchimp.com/schema/...
+//   app.stainless.com/api/spec/...
+//   developers.smartsheet.com/...
+//   dac-static.atlassian.com/...
+//
+// These are CDN/API endpoints that always serve the current version.
+// A HEAD check + content sniff is sufficient — no sibling checking needed.
+// Returns the existing SpecResult if valid, null if we need further checking.
 
 public function stepQuickVerify(
     string? knownSpecUrl,
@@ -26,6 +64,7 @@ public function stepQuickVerify(
         return ();
     }
 
+    // GitHub-hosted URLs need version-sibling checking — handled by step 2
     if knownSpecUrl.includes("raw.githubusercontent.com") {
         log:printInfo("  [step1] GitHub URL — skipping to version check");
         return ();
@@ -38,17 +77,14 @@ public function stepQuickVerify(
         return ();
     }
 
-    string|error body = httpGetBodyPartial(knownSpecUrl, 2000);
+    // Confirm it still looks like a spec (100KB for large specs)
+    string|error body = httpGetBodyPartial(knownSpecUrl, 100000);
     if body is error {
         log:printInfo("  [step1] content check failed — triggering re-discovery");
         return ();
     }
 
-    string trimmed = body.trim();
-    boolean isSpec = trimmed.startsWith("openapi:") || trimmed.startsWith("swagger:") ||
-                     trimmed.includes("\"openapi\"") || trimmed.includes("\"swagger\"");
-
-    if !isSpec {
+    if !looksLikeSpec(body) {
         log:printInfo("  [step1] content is not a spec — triggering re-discovery");
         return ();
     }
@@ -65,6 +101,14 @@ public function stepQuickVerify(
 }
 
 // ─── STEP 2: GitHub Version Check ────────────────────────────────────────────
+// For GitHub-hosted specs with a known URL.
+// Fetches the known URL to confirm it is still valid, then checks the parent
+// folder for newer siblings.
+//
+// Returns:
+//   SpecResult  → valid URL (same or newer)
+//   "DEAD"      → known URL is gone, need full re-discovery
+//   ()          → agent error/timeout
 
 const string GITHUB_CHECK_SYSTEM_PROMPT =
     "You are checking whether a GitHub-hosted OpenAPI spec URL is still the LATEST version.\n" +
@@ -347,7 +391,7 @@ public function stepDiscovery(
 
     // Note whether browser service is available for SPA pages
     string browserNote = "";
-    if isKnownSpa(docsUrl) {
+    if isKnownSpaDomain(docsUrl) {
         if isBrowserServiceAvailable() {
             browserNote = string `\nNOTE: The docs URL (${docsUrl}) is a JavaScript SPA. ` +
                 "The browser service is running so fetch_page will return the fully rendered page. " +
@@ -486,6 +530,7 @@ function parseDiscoveryResult(string text) returns DiscoveryResult {
             if u.startsWith("http") && !seen.hasKey(u) {
                 seen[u] = true;
                 urls.push(u);
+                // Add alternate branch variant for raw GitHub URLs
                 if u.includes("raw.githubusercontent.com/") {
                     string alt = "";
                     if u.includes("/main/") {
@@ -506,6 +551,11 @@ function parseDiscoveryResult(string text) returns DiscoveryResult {
 }
 
 // ─── STEP 4: Content Verify ───────────────────────────────────────────────────
+// Pure HTTP — no Claude needed.
+// Confirms each candidate URL actually contains a valid spec.
+//
+// NOTE: Fetches 100KB to handle large specs like Stripe (~14MB) where
+// the `openapi:` field appears deep in the file, not at the start.
 
 public function stepContentVerify(
     DiscoveryResult discovery
@@ -526,17 +576,15 @@ public function stepContentVerify(
             continue;
         }
 
-        string|error body = httpGetBodyPartial(url, 3000);
+        // Fetch 100KB — needed for large specs (e.g. Stripe) where openapi:
+        // field is not in the first few KB due to alphabetical YAML ordering
+        string|error body = httpGetBodyPartial(url, 100000);
         if body is error {
             log:printInfo("  [step4] content fetch failed — skipping");
             continue;
         }
 
-        string trimmed = body.trim();
-        boolean isSpec = trimmed.startsWith("openapi:") || trimmed.startsWith("swagger:") ||
-                         trimmed.includes("\"openapi\"") || trimmed.includes("\"swagger\"");
-
-        if !isSpec {
+        if !looksLikeSpec(body) {
             log:printInfo("  [step4] content is not a spec — skipping");
             continue;
         }
@@ -556,6 +604,28 @@ public function stepContentVerify(
     return ();
 }
 
+// ─── Spec content detection ───────────────────────────────────────────────────
+// Checks whether a string looks like an OpenAPI/Swagger spec.
+// Handles large specs where openapi: field is not at the very start.
+
+isolated function looksLikeSpec(string content) returns boolean {
+    string t = content.trim();
+    // Standard starts
+    if t.startsWith("openapi:") { return true; }
+    if t.startsWith("swagger:") { return true; }
+    // JSON format
+    if t.includes("\"openapi\"") { return true; }
+    if t.includes("\"swagger\"") { return true; }
+    // YAML field not at root (e.g. Stripe spec starts with components:)
+    if t.includes("\nopenapi:") { return true; }
+    if t.includes("\nswagger:") { return true; }
+    // Large alphabetically-ordered specs (e.g. Stripe) start with components:
+    // and openapi: is too deep to appear within the first 100KB fetch window.
+    // components: is an OpenAPI 3.x-specific top-level keyword — safe heuristic.
+    if t.startsWith("components:") { return true; }
+    return false;
+}
+
 // ─── Shared HTTP helpers ──────────────────────────────────────────────────────
 
 function httpGetBodyPartial(string url, int maxBytes) returns string|error {
@@ -565,6 +635,7 @@ function httpGetBodyPartial(string url, int maxBytes) returns string|error {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
+    // Raw content files get 20s, docs pages get 8s
     decimal timeoutSecs = isRawContentUrl(url) ? 20 : 8;
 
     http:Client cl = check new (url, {

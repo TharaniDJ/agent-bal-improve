@@ -11,5 +11,18 @@
         "status": "found",
         "checkedAt": "2026-04-04T01:54:53.580427Z",
         "elapsedSeconds": 42.5
+    },
+    {
+        "name": "Stripe",
+        "docsUrl": "https://docs.stripe.com/api",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.yaml",
+        "specRepo": "stripe/openapi",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-04T04:00:25.665573Z",
+        "elapsedSeconds": 40.7
     }
 ]
