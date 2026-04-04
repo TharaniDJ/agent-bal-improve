@@ -284,16 +284,52 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "Find the raw download URL(s) for the OpenAPI/Swagger spec file.\n" +
     "Return a structured list of candidate URLs — do NOT verify content.\n" +
     "\n" +
-    "## PRIMARY STRATEGY: Always read the docs page first\n" +
-    "The docs page is the most reliable source. It often has a visible\n" +
+    "## PRIORITY ORDER — follow this strictly, top to bottom\n" +
+    "\n" +
+    "### PRIORITY 1 (ALWAYS do this first): Official docs page\n" +
+    "ALWAYS fetch the docs URL as your very first action (unless knownSpecRepo is given).\n" +
+    "The docs page is the most authoritative source. It often has a visible\n" +
     "'Download OpenAPI', 'Download spec', or 'OpenAPI spec' link or button.\n" +
-    "ALWAYS fetch the docs URL as your first action unless knownSpecRepo is given.\n" +
     "\n" +
     "When reading the docs page response:\n" +
     "  - Look in spec_links for any .yaml, .json, or openapi/swagger URLs\n" +
-    "  - Look in other_links for links containing: download, openapi, swagger, spec\n" +
+    "  - Look in other_links for links containing: download, openapi, swagger, spec, reference\n" +
     "  - Look in page_text for mentions of spec URLs or download buttons\n" +
-    "  - If the page has a 'Download OpenAPI' button link — that IS the answer\n" +
+    "  - IMPORTANT: If the page contains ANY URL ending in .yaml, .json, or containing\n" +
+    "    'openapi', 'swagger', or 'spec' — add it as a candidate IMMEDIATELY.\n" +
+    "    These vendor-hosted URLs (CDN, API gateway, static assets) are OFFICIAL and\n" +
+    "    must be returned before any GitHub or APIs-guru link.\n" +
+    "  - If the page has a 'Download OpenAPI' button link — that IS the answer, stop here.\n" +
+    "\n" +
+    "### PRIORITY 2: Vendor's official GitHub repository\n" +
+    "Only if the docs page yields nothing useful:\n" +
+    "  1. If knownSpecRepo given → use Contents API on that repo directly\n" +
+    "  2. Otherwise infer the GitHub org/repo from the API name or docs URL\n" +
+    "     and try the Contents API on the most likely repo name\n" +
+    "  3. Try common repo name patterns: {vendor}-openapi, {vendor}-api-spec,\n" +
+    "     openapi-{vendor}, {vendor}-rest-api-specifications, {vendor}-swagger\n" +
+    "  4. Drill into folders to find .yaml/.json spec files\n" +
+    "  5. Prefer files whose name contains: openapi, swagger, api, spec\n" +
+    "  6. Prefer files in root, /spec/, /openapi/, /defs/ over deeply nested paths\n" +
+    "  7. Skip folders named: test, example, archive, staging, preview, draft\n" +
+    "\n" +
+    "### PRIORITY 3: Other official vendor sources\n" +
+    "Only if docs page AND GitHub both yield nothing:\n" +
+    "  - Check vendor CDN or static asset URLs you know about for this vendor\n" +
+    "  - Check the vendor's developer portal for a spec download endpoint\n" +
+    "  - Try common CDN patterns: dac-static.{vendor}.com, developer.{vendor}.com/openapi/\n" +
+    "\n" +
+    "### PRIORITY 4 (ABSOLUTE LAST RESORT ONLY): APIs-guru directory\n" +
+    "CRITICAL: Only check APIs-guru AFTER you have:\n" +
+    "  (a) fetched the docs page AND found no spec links, AND\n" +
+    "  (b) tried at least one vendor GitHub repo AND found no spec file.\n" +
+    "Do NOT jump to APIs-guru early. APIs-guru specs are often outdated mirrors.\n" +
+    "The official vendor source is ALWAYS preferred over APIs-guru.\n" +
+    "\n" +
+    "When you must fall back to APIs-guru:\n" +
+    "  https://api.github.com/repos/APIs-guru/openapi-directory/contents/APIs\n" +
+    "  Find the folder matching the API provider name (e.g. zoom.us, stripe.com).\n" +
+    "  Drill into the version subfolder and get the download_url of openapi.yaml.\n" +
     "\n" +
     "## Tool: fetch_page\n" +
     "Fetches a URL. Returns:\n" +
@@ -302,27 +338,10 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "  - YAML file  → { type: \"yaml\", content: \"<first 4 KB>\" }\n" +
     "\n" +
     "Rules:\n" +
-    "  - Maximum 6 fetch_page calls total\n" +
+    "  - Maximum 8 fetch_page calls total\n" +
     "  - Never fetch the same URL twice\n" +
     "  - Never fetch github.com/blob/ or github.com/tree/ (use Contents API instead)\n" +
     "  - GitHub Contents API: https://api.github.com/repos/OWNER/REPO/contents/PATH\n" +
-    "\n" +
-    "## Fallback strategy (only when docs page has no spec links)\n" +
-    "If the docs page returns empty page_text (under 200 chars) AND no spec_links:\n" +
-    "  1. If knownSpecRepo given → use Contents API on that repo directly\n" +
-    "  2. Otherwise infer the GitHub org/repo from the API name or docs URL\n" +
-    "     and try the Contents API on the most likely repo name\n" +
-    "  3. Drill into folders to find .yaml/.json spec files\n" +
-    "  4. Prefer files whose name contains: openapi, swagger, api, spec\n" +
-    "  5. Prefer files in root, /spec/, /openapi/, /defs/ over deeply nested paths\n" +
-    "  6. Skip folders named: test, example, archive, staging, preview, draft\n" +
-    "\n" +
-    "## Last resort: APIs-guru directory\n" +
-    "Only after exhausting the docs page AND GitHub search, check APIs-guru:\n" +
-    "  https://api.github.com/repos/APIs-guru/openapi-directory/contents/APIs\n" +
-    "Find the folder matching the API provider name (e.g. zoom.us, stripe.com).\n" +
-    "Drill into the version subfolder and get the download_url of openapi.yaml.\n" +
-    "Only use APIs-guru if all other approaches have failed.\n" +
     "\n" +
     "## File selection preferences\n" +
     "  - Prefer highest OpenAPI/Swagger version (3.1.0 > 3.0.0 > 2.0)\n" +
@@ -339,7 +358,8 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "DISCOVERY_RESULT:\n" +
     "NONE\n" +
     "\n" +
-    "Only raw download URLs. Never github.com/blob/ links. No other text.";
+    "Only raw download URLs. Never github.com/blob/ links. No other text.\n" +
+    "IMPORTANT: List official vendor URLs BEFORE any APIs-guru URLs.";
 
 public function stepDiscovery(
     string docsUrl,
@@ -362,15 +382,21 @@ public function stepDiscovery(
     string userMsg = string `Find the OpenAPI spec download URL for: ${apiName}
 Docs URL: ${docsUrl}${targetNote}${repoHint}
 
-IMPORTANT: Always fetch the docs URL first. It often has a direct download link for the OpenAPI spec.
-Return DISCOVERY_RESULT with raw download URLs only.`;
+STRICT PRIORITY ORDER:
+1. ALWAYS fetch the docs URL first — it often has a direct download link or an embedded spec URL.
+   If the docs page contains ANY URL ending in .yaml/.json or containing 'openapi'/'swagger', that is the official spec — return it immediately.
+2. Only if docs page is empty/useless → check the vendor's official GitHub repo.
+3. ONLY as an absolute last resort, after docs page AND vendor GitHub have both failed → check APIs-guru.
+   Never jump to APIs-guru early. Official vendor sources are always preferred.
+
+Return DISCOVERY_RESULT with raw download URLs only. List official vendor URLs before any APIs-guru URLs.`;
 
     json[] messages = [{"role": "user", "content": userMsg}];
     map<boolean> fetched = {};
     string model = os:getEnv("CLAUDE_MODEL");
     if model.length() == 0 { model = "claude-sonnet-4-6"; }
 
-    int maxTurns = 8;
+    int maxTurns = 10;
     int turn = 0;
 
     while turn < maxTurns {
@@ -447,7 +473,12 @@ Return DISCOVERY_RESULT with raw download URLs only.`;
             messages.push({"role": "assistant", "content": blocks});
             messages.push({
                 "role": "user",
-                "content": "Output DISCOVERY_RESULT now. If you have not yet tried the APIs-guru directory, try it before giving up."
+                "content": "Output DISCOVERY_RESULT now.\n" +
+                    "IMPORTANT: Have you checked the docs page AND the vendor's official GitHub repo?\n" +
+                    "If not, do that first — official vendor sources must be tried before APIs-guru.\n" +
+                    "Only fall back to APIs-guru if both the docs page and vendor GitHub have been tried and yielded nothing.\n" +
+                    "Return whatever official URLs you found, even if you are not 100% certain they are specs.\n" +
+                    "APIs-guru is acceptable ONLY as a last resort when all official sources are exhausted."
             });
             continue;
         }
