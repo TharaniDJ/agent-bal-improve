@@ -596,19 +596,24 @@ public function stepContentVerify(
 
 isolated function looksLikeSpec(string content) returns boolean {
     string t = content.trim();
-    // Standard starts
+    // Standard YAML starts
     if t.startsWith("openapi:") { return true; }
     if t.startsWith("swagger:") { return true; }
-    // JSON format
+    // JSON format — "openapi" or "swagger" key anywhere in the fetched window
     if t.includes("\"openapi\"") { return true; }
     if t.includes("\"swagger\"") { return true; }
     // YAML field not at root (e.g. Stripe spec starts with components:)
     if t.includes("\nopenapi:") { return true; }
     if t.includes("\nswagger:") { return true; }
-    // Large alphabetically-ordered specs (e.g. Stripe) start with components:
+    // Large alphabetically-ordered YAML specs (e.g. Stripe) start with components:
     // and openapi: is too deep to appear within the first 100KB fetch window.
     // components: is an OpenAPI 3.x-specific top-level keyword — safe heuristic.
     if t.startsWith("components:") { return true; }
+    // Large alphabetically-ordered JSON specs (e.g. Jira ~14MB) start with
+    // {"components":...} — the "openapi" key is far beyond the 100KB fetch window.
+    // Check the first 300 chars to confirm "components" is a root-level key.
+    string head = t.length() > 300 ? t.substring(0, 300) : t;
+    if t.startsWith("{") && head.includes("\"components\"") { return true; }
     return false;
 }
 
