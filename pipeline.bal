@@ -5,50 +5,16 @@
 // Step 2: stepGithubVersionCheck  — Claude, GitHub-hosted specs with known URL
 // Step 3: stepDiscovery           — Claude, find candidates from scratch
 // Step 4: stepContentVerify       — pure HTTP, confirm discovered candidates
+//
+// SPA handling: known SPA domains are now fetched via the headless browser
+// service (browser-service/server.js) instead of being skipped. This allows
+// Claude to read the actual rendered page and find "Download OpenAPI" links.
 
 import ballerina/http;
 import ballerina/log;
 import ballerina/os;
 
-// ─── Known SPA domains ───────────────────────────────────────────────────────
-// These docs pages are JavaScript SPAs — fetching them wastes time and returns
-// nothing useful. When detected, Claude skips straight to GitHub inference.
-
-isolated function isKnownSpa(string url) returns boolean {
-    string lo = url.toLowerAscii();
-    string[] spaDomains = [
-        "docs.stripe.com",
-        "developers.zoom.us",
-        "developer.paypal.com",
-        "developers.docusign.com",
-        "developer.salesforce.com",
-        "platform.openai.com",
-        "developers.google.com",
-        "learn.microsoft.com",
-        "discord.com/developers",
-        "developer.atlassian.com",
-        "developer.x.com",
-        "developer.twitter.com",
-        "developers.hubspot.com"
-    ];
-    foreach string domain in spaDomains {
-        if lo.includes(domain) { return true; }
-    }
-    return false;
-}
-
 // ─── STEP 1: Quick Verify (stable/direct URLs only) ──────────────────────────
-// Only for non-GitHub direct endpoints like:
-//   developer.candid.org/openapi/...
-//   www.elastic.co/docs/api/...
-//   api.mailchimp.com/schema/...
-//   app.stainless.com/api/spec/...
-//   developers.smartsheet.com/...
-//   dac-static.atlassian.com/...
-//
-// These are CDN/API endpoints that always serve the current version.
-// A HEAD check + content sniff is sufficient — no sibling checking needed.
-// Returns the existing SpecResult if valid, null if we need further checking.
 
 public function stepQuickVerify(
     string? knownSpecUrl,
@@ -60,7 +26,6 @@ public function stepQuickVerify(
         return ();
     }
 
-    // GitHub-hosted URLs need version-sibling checking — handled by step 2
     if knownSpecUrl.includes("raw.githubusercontent.com") {
         log:printInfo("  [step1] GitHub URL — skipping to version check");
         return ();
@@ -73,7 +38,6 @@ public function stepQuickVerify(
         return ();
     }
 
-    // Confirm it still looks like a spec (first 2KB is enough)
     string|error body = httpGetBodyPartial(knownSpecUrl, 2000);
     if body is error {
         log:printInfo("  [step1] content check failed — triggering re-discovery");
@@ -101,14 +65,6 @@ public function stepQuickVerify(
 }
 
 // ─── STEP 2: GitHub Version Check ────────────────────────────────────────────
-// For GitHub-hosted specs with a known URL.
-// Fetches the known URL to confirm it is still valid, then checks the parent
-// folder for newer siblings.
-//
-// Returns:
-//   SpecResult  → valid URL (same or newer)
-//   "DEAD"      → known URL is gone, need full re-discovery
-//   ()          → agent error/timeout
 
 const string GITHUB_CHECK_SYSTEM_PROMPT =
     "You are checking whether a GitHub-hosted OpenAPI spec URL is still the LATEST version.\n" +
@@ -159,7 +115,6 @@ public function stepGithubVersionCheck(
         ? string `\nGitHub repo: ${knownSpecRepo}`
         : "";
 
-    // Infer repo from URL if not explicitly provided
     string? inferredRepo = knownSpecRepo;
     if inferredRepo is () {
         inferredRepo = inferRepoFromRawUrl(knownSpecUrl);
@@ -303,9 +258,10 @@ function parseGithubCheckResult(string text, string? fallbackRepo) returns SpecR
 }
 
 // ─── STEP 3: Discovery Agent ──────────────────────────────────────────────────
-// Only runs when no known URL exists, or known URL is dead.
-// Fetches the docs URL and finds candidate raw download URLs.
-// SPA domains are detected and Claude is told to skip the docs fetch entirely.
+// The primary strategy is ALWAYS to fetch the docs URL first.
+// For SPA domains, the headless browser service renders the page so Claude
+// can read the actual content including "Download OpenAPI" buttons.
+// GitHub search and APIs-guru are fallbacks only.
 
 const string DISCOVERY_SYSTEM_PROMPT =
     "You are an expert at finding publicly available OpenAPI/Swagger specification files.\n" +
@@ -314,9 +270,16 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "Find the raw download URL(s) for the OpenAPI/Swagger spec file.\n" +
     "Return a structured list of candidate URLs — do NOT verify content.\n" +
     "\n" +
-    "## Known SPA domains — do NOT fetch docs page, go straight to GitHub\n" +
-    "These docs pages are JavaScript SPAs that return no useful content.\n" +
-
+    "## PRIMARY STRATEGY: Always read the docs page first\n" +
+    "The docs page is the most reliable source. It often has a visible\n" +
+    "'Download OpenAPI', 'Download spec', or 'OpenAPI spec' link or button.\n" +
+    "ALWAYS fetch the docs URL as your first action unless knownSpecRepo is given.\n" +
+    "\n" +
+    "When reading the docs page response:\n" +
+    "  - Look in spec_links for any .yaml, .json, or openapi/swagger URLs\n" +
+    "  - Look in other_links for links containing: download, openapi, swagger, spec\n" +
+    "  - Look in page_text for mentions of spec URLs or download buttons\n" +
+    "  - If the page has a 'Download OpenAPI' button link — that IS the answer\n" +
     "\n" +
     "## Tool: fetch_page\n" +
     "Fetches a URL. Returns:\n" +
@@ -329,28 +292,28 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "  - Never fetch the same URL twice\n" +
     "  - Never fetch github.com/blob/ or github.com/tree/ (use Contents API instead)\n" +
     "  - GitHub Contents API: https://api.github.com/repos/OWNER/REPO/contents/PATH\n" +
-    "  - If docs page returns empty page_text (under 200 chars) with no spec_links\n" +
-    "    → it is a SPA; go immediately to the GitHub Contents API\n" +
     "\n" +
-    "## Strategy\n" +
-    "1. If docs URL is a known SPA domain → skip to step 3\n" +
-    "2. Otherwise fetch the docs URL:\n" +
-    "   - If spec_links found → extract raw download URLs → done\n" +
-    "   - If SPA detected (empty page_text) → go to step 3\n" +
-    "   - If GitHub repo link found → go to step 3\n" +
-    "3. GitHub search:\n" +
-    "   - If knownSpecRepo given → use Contents API on that repo directly\n" +
-    "   - Otherwise infer the GitHub org/repo from the API name or docs URL\n" +
-    "     (e.g. 'Stripe' → try api.github.com/repos/stripe/openapi/contents/)\n" +
-    "   - Drill into folders to find .yaml/.json spec files\n" +
-    "   - Prefer files whose name contains: openapi, swagger, api, spec\n" +
-    "   - Prefer files in root, /spec/, /openapi/, /defs/ over deeply nested paths\n" +
-    "   - Skip folders named: test, example, archive, staging, preview, draft\n" +
-    "4. When selecting among multiple spec files:\n" +
-    "   - Prefer highest OpenAPI/Swagger version (3.1.0 > 3.0.0 > 2.0)\n" +
-    "   - Prefer YAML over JSON at the same version\n" +
-    "   - Prefer default branch (main/master) over tagged releases\n" +
-    "5. If the user message names a Target spec → match by title, ignore others\n" +
+    "## Fallback strategy (only when docs page has no spec links)\n" +
+    "If the docs page returns empty page_text (under 200 chars) AND no spec_links:\n" +
+    "  1. If knownSpecRepo given → use Contents API on that repo directly\n" +
+    "  2. Otherwise infer the GitHub org/repo from the API name or docs URL\n" +
+    "     and try the Contents API on the most likely repo name\n" +
+    "  3. Drill into folders to find .yaml/.json spec files\n" +
+    "  4. Prefer files whose name contains: openapi, swagger, api, spec\n" +
+    "  5. Prefer files in root, /spec/, /openapi/, /defs/ over deeply nested paths\n" +
+    "  6. Skip folders named: test, example, archive, staging, preview, draft\n" +
+    "\n" +
+    "## Last resort: APIs-guru directory\n" +
+    "Only after exhausting the docs page AND GitHub search, check APIs-guru:\n" +
+    "  https://api.github.com/repos/APIs-guru/openapi-directory/contents/APIs\n" +
+    "Find the folder matching the API provider name (e.g. zoom.us, stripe.com).\n" +
+    "Drill into the version subfolder and get the download_url of openapi.yaml.\n" +
+    "Only use APIs-guru if all other approaches have failed.\n" +
+    "\n" +
+    "## File selection preferences\n" +
+    "  - Prefer highest OpenAPI/Swagger version (3.1.0 > 3.0.0 > 2.0)\n" +
+    "  - Prefer YAML over JSON at the same version\n" +
+    "  - Prefer default branch (main/master) over tagged releases\n" +
     "\n" +
     "## Output format — EXACTLY this, nothing else\n" +
     "DISCOVERY_RESULT:\n" +
@@ -382,16 +345,25 @@ public function stepDiscovery(
         ? string `\nKnown GitHub repo: ${knownSpecRepo} — start here with Contents API.`
         : "";
 
-    // Tell Claude explicitly when the docs URL is a known SPA so it skips the fetch
-    string spaNote = isKnownSpa(docsUrl)
-        ? string `\nNOTE: The docs URL (${docsUrl}) is a JavaScript SPA — do NOT fetch it. ` +
-          "Go directly to the GitHub Contents API. " +
-          "Infer the GitHub org/repo from the API name if knownSpecRepo is not provided."
-        : "";
+    // Note whether browser service is available for SPA pages
+    string browserNote = "";
+    if isKnownSpa(docsUrl) {
+        if isBrowserServiceAvailable() {
+            browserNote = string `\nNOTE: The docs URL (${docsUrl}) is a JavaScript SPA. ` +
+                "The browser service is running so fetch_page will return the fully rendered page. " +
+                "Fetch the docs URL first — look for 'Download OpenAPI' links or buttons in the response.";
+        } else {
+            browserNote = string `\nNOTE: The docs URL (${docsUrl}) is a JavaScript SPA and the ` +
+                "browser service is not running. The docs page may return limited content. " +
+                "Try fetching it anyway, but if page_text is empty or under 200 chars with no spec_links, " +
+                "fall back to GitHub search using the knownSpecRepo or infer the repo from the API name.";
+        }
+    }
 
     string userMsg = string `Find the OpenAPI spec download URL for: ${apiName}
-Docs URL: ${docsUrl}${targetNote}${repoHint}${spaNote}
+Docs URL: ${docsUrl}${targetNote}${repoHint}${browserNote}
 
+IMPORTANT: Always fetch the docs URL first. It often has a direct download link for the OpenAPI spec.
 Return DISCOVERY_RESULT with raw download URLs only.`;
 
     json[] messages = [{"role": "user", "content": userMsg}];
@@ -474,7 +446,10 @@ Return DISCOVERY_RESULT with raw download URLs only.`;
 
         if stopReason == "end_turn" {
             messages.push({"role": "assistant", "content": blocks});
-            messages.push({"role": "user", "content": "Output DISCOVERY_RESULT now."});
+            messages.push({
+                "role": "user",
+                "content": "Output DISCOVERY_RESULT now. If you have not yet tried the APIs-guru directory, try it before giving up."
+            });
             continue;
         }
 
@@ -511,7 +486,6 @@ function parseDiscoveryResult(string text) returns DiscoveryResult {
             if u.startsWith("http") && !seen.hasKey(u) {
                 seen[u] = true;
                 urls.push(u);
-                // Add alternate branch variant for raw GitHub URLs
                 if u.includes("raw.githubusercontent.com/") {
                     string alt = "";
                     if u.includes("/main/") {
@@ -532,8 +506,6 @@ function parseDiscoveryResult(string text) returns DiscoveryResult {
 }
 
 // ─── STEP 4: Content Verify ───────────────────────────────────────────────────
-// Pure HTTP — no Claude needed.
-// Confirms each candidate URL actually contains a valid spec.
 
 public function stepContentVerify(
     DiscoveryResult discovery
@@ -593,7 +565,6 @@ function httpGetBodyPartial(string url, int maxBytes) returns string|error {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
-    // Raw content files get 20s, docs pages get 8s
     decimal timeoutSecs = isRawContentUrl(url) ? 20 : 8;
 
     http:Client cl = check new (url, {

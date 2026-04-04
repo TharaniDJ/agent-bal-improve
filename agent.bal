@@ -2,7 +2,7 @@
 // Shared utilities used by all pipeline steps:
 //   - executeFetchPage()  — tool handler (HTML/JSON/YAML fetch + parse)
 //   - callClaude()        — Anthropic API call
-//   - httpGetBody()       — raw HTTP GET with smart timeouts
+//   - httpGetBody()       — raw HTTP GET, routes SPA domains through headless browser
 //   - headOk()            — HEAD check
 //   - HTML/string utils
 
@@ -29,6 +29,38 @@ final json FETCH_PAGE_TOOL = {
         "required": ["url"]
     }
 };
+
+// ─── Browser service port ─────────────────────────────────────────────────────
+// The headless browser sidecar (browser-service/server.js) runs on this port.
+// Start it with: node browser-service/server.js
+const int BROWSER_SERVICE_PORT = 3456;
+
+// ─── Known SPA domains ────────────────────────────────────────────────────────
+// These docs pages are JavaScript SPAs that return empty/error responses to
+// plain HTTP requests. They are routed through the headless browser service
+// which renders the page fully before returning the HTML.
+isolated function isKnownSpa(string url) returns boolean {
+    string lo = url.toLowerAscii();
+    string[] spaDomains = [
+        "docs.stripe.com",
+        "developers.zoom.us",
+        "developer.paypal.com",
+        "developers.docusign.com",
+        "developer.salesforce.com",
+        "platform.openai.com",
+        "developers.google.com",
+        "learn.microsoft.com",
+        "discord.com/developers",
+        "developer.atlassian.com",
+        "developer.x.com",
+        "developer.twitter.com",
+        "developers.hubspot.com"
+    ];
+    foreach string domain in spaDomains {
+        if lo.includes(domain) { return true; }
+    }
+    return false;
+}
 
 // ─── fetch_page tool handler ──────────────────────────────────────────────────
 
@@ -202,13 +234,49 @@ function callClaude(string apiKey, string model, json[] messages, string systemP
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
 // Returns true for raw spec/API file URLs (GitHub API, .yaml, .yml, .json).
-// These get the full 20s timeout. HTML docs pages get 8s and a 150KB body cap.
 isolated function isRawContentUrl(string url) returns boolean {
     string lo = url.toLowerAscii();
     if lo.includes("api.github.com") { return true; }
     if lo.endsWith(".yaml") || lo.endsWith(".yml") { return true; }
     if lo.endsWith(".json") { return true; }
     return false;
+}
+
+// Checks if the headless browser service is running on localhost.
+isolated function isBrowserServiceAvailable() returns boolean {
+    do {
+        http:Client cl = check new (string `http://localhost:${BROWSER_SERVICE_PORT}`, {timeout: 2});
+        http:Response r = check cl->get("/health");
+        return r.statusCode == 200;
+    } on fail {
+        return false;
+    }
+}
+
+// Fetches a SPA URL via the headless browser service.
+// Returns the rendered HTML, or an error if the service is unavailable.
+function httpGetBodyViaBrowser(string url) returns string|error {
+    log:printInfo(string `    [browser-fetch] ${url}`);
+    http:Client cl = check new (string `http://localhost:${BROWSER_SERVICE_PORT}`, {timeout: 45});
+    string encodedUrl = url; // Ballerina http client handles query param encoding
+    http:Response resp = check cl->get(string `/fetch?url=${url}`);
+    if resp.statusCode != 200 {
+        string errBody = check resp.getTextPayload();
+        return error(string `Browser service error ${resp.statusCode}: ${errBody}`);
+    }
+    json respJson = check resp.getJsonPayload();
+    if respJson is map<json> {
+        json? htmlVal = respJson["html"];
+        if htmlVal is string {
+            log:printInfo(string `    [browser-fetch] OK — ${htmlVal.length()} bytes`);
+            return htmlVal;
+        }
+        json? errVal = respJson["error"];
+        if errVal is string {
+            return error(string `Browser service: ${errVal}`);
+        }
+    }
+    return error("Browser service returned unexpected response");
 }
 
 function httpGetBody(string url) returns string|error {
@@ -218,9 +286,21 @@ function httpGetBody(string url) returns string|error {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
+    // Route known SPA domains through the headless browser service if available.
+    // This allows the page to fully render its JavaScript before we extract links.
+    if isKnownSpa(url) {
+        if isBrowserServiceAvailable() {
+            return httpGetBodyViaBrowser(url);
+        } else {
+            log:printInfo(string `    [spa-warn] Browser service not running — falling back to plain HTTP for ${url}`);
+            log:printInfo("    [spa-warn] Start with: node browser-service/server.js");
+            // Fall through to plain HTTP — will likely get limited content but we try anyway
+        }
+    }
+
+    // Plain HTTP for non-SPA URLs and as fallback when browser service is down.
     // Raw content (GitHub API, spec files) gets 20s.
-    // HTML docs pages get 8s — we only need enough to extract links.
-    // SPAs will either timeout quickly or return a tiny shell we detect immediately.
+    // HTML docs pages get 8s.
     decimal timeoutSecs = isRawContentUrl(url) ? 20 : 8;
 
     http:Client cl = check new (url, {
@@ -235,8 +315,7 @@ function httpGetBody(string url) returns string|error {
 
     string body = check resp.getTextPayload();
 
-    // For HTML docs pages cap at 150 KB — enough to extract all links,
-    // but skips the megabytes of minified JS bundled into SPA pages.
+    // For HTML docs pages cap at 150 KB
     if !isRawContentUrl(url) {
         string t = body.trim();
         boolean looksLikeHtml = !t.startsWith("openapi:") && !t.startsWith("swagger:") &&

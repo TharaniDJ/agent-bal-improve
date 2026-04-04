@@ -1,5 +1,5 @@
 // connectors.bal
 
 public final Connector[] & readonly ALL_CONNECTORS = [
-    {name: "OpenAI",                         docsUrl: "https://platform.openai.com/docs/api-reference/introduction",                                           targetTitle: ()}
+    {name: "Zoom Meetings", docsUrl: "https://developers.zoom.us/docs/api/meetings/",                                       targetTitle: ()}
 ];
