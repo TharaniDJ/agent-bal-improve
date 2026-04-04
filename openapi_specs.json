@@ -1,0 +1,15 @@
+[
+    {
+        "name": "Zoom Meetings",
+        "docsUrl": "https://developers.zoom.us/docs/api/meetings/",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/zoom.us/2.0.0/openapi.yaml",
+        "specRepo": "APIs-guru/openapi-directory",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-04T01:54:53.580427Z",
+        "elapsedSeconds": 42.5
+    }
+]

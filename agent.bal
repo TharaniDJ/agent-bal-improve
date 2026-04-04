@@ -268,8 +268,10 @@ function httpGetBodyViaBrowser(string url) returns string|error {
     if respJson is map<json> {
         json? htmlVal = respJson["html"];
         if htmlVal is string {
-            log:printInfo(string `    [browser-fetch] OK — ${htmlVal.length()} bytes`);
-            return htmlVal;
+            // Cap at 50KB — enough to find Download OpenAPI links, avoids Claude context overflow
+            string capped = htmlVal.length() > 50000 ? htmlVal.substring(0, 50000) : htmlVal;
+            log:printInfo(string `    [browser-fetch] OK — ${htmlVal.length()} bytes (capped to ${capped.length()})`);
+            return capped;
         }
         json? errVal = respJson["error"];
         if errVal is string {
