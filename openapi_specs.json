@@ -9,8 +9,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-05T17:07:13.428409Z",
-        "elapsedSeconds": 46.3
+        "checkedAt": "2026-04-05T17:14:30.258464Z",
+        "elapsedSeconds": 53.2
     },
     {
         "name": "Mailchimp Marketing",
@@ -22,8 +22,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-05T17:08:00.884689Z",
-        "elapsedSeconds": 92.5
+        "checkedAt": "2026-04-05T17:14:20.715168Z",
+        "elapsedSeconds": 42.4
     },
     {
         "name": "Mailchimp Transactional",
@@ -35,8 +35,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-05T17:07:45.753591Z",
-        "elapsedSeconds": 77.3
+        "checkedAt": "2026-04-05T17:13:49.273292Z",
+        "elapsedSeconds": 10.9
     },
     {
         "name": "Microsoft OneDrive",
@@ -48,21 +48,21 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-05T17:08:19.009689Z",
-        "elapsedSeconds": 110.5
+        "checkedAt": "2026-04-05T17:14:57.392294Z",
+        "elapsedSeconds": 79.0
     },
     {
         "name": "OpenAI",
         "docsUrl": "https://platform.openai.com/docs/api-reference/introduction",
         "targetTitle": null,
-        "specUrl": null,
-        "specRepo": null,
+        "specUrl": "https://raw.githubusercontent.com/openai/openai-openapi/2025-03-21/openapi.yaml",
+        "specRepo": "openai/openai-openapi",
         "title": null,
         "apiVersion": null,
-        "format": null,
-        "status": "not_found",
-        "checkedAt": "2026-04-05T17:07:46.222583Z",
-        "elapsedSeconds": 77.8
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-05T17:14:03.286508Z",
+        "elapsedSeconds": 24.9
     },
     {
         "name": "PayPal Invoices",
@@ -74,8 +74,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-05T17:08:55.999801Z",
-        "elapsedSeconds": 37.0
+        "checkedAt": "2026-04-05T17:15:11.136925Z",
+        "elapsedSeconds": 13.7
     },
     {
         "name": "PayPal Orders",
@@ -87,8 +87,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-05T17:08:57.968998Z",
-        "elapsedSeconds": 38.9
+        "checkedAt": "2026-04-05T17:15:11.433495Z",
+        "elapsedSeconds": 14.0
     },
     {
         "name": "PayPal Payments",
@@ -100,8 +100,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-05T17:08:56.997371Z",
-        "elapsedSeconds": 37.9
+        "checkedAt": "2026-04-05T17:15:11.333510Z",
+        "elapsedSeconds": 13.9
     },
     {
         "name": "PayPal Subscriptions",
@@ -113,12 +113,90 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-05T17:08:57.720957Z",
-        "elapsedSeconds": 38.7
+        "checkedAt": "2026-04-05T17:15:10.836390Z",
+        "elapsedSeconds": 13.4
     },
     {
         "name": "Salesforce Marketing Cloud",
         "docsUrl": "https://developer.salesforce.com/docs/marketing/marketing-cloud/guide/apis-overview.html",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/salesforce-marketingcloud/mcsdk-automation-framework-core/master/resources/sfmc-openapi-v2.json",
+        "specRepo": "salesforce-marketingcloud/mcsdk-automation-framework-core",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-05T17:15:08.502149Z",
+        "elapsedSeconds": 11.1
+    },
+    {
+        "name": "HubSpot CRM Contacts",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/contacts",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Contacts/Rollouts/107729/v3/contacts.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-05T17:18:21.596254Z",
+        "elapsedSeconds": 59.7
+    },
+    {
+        "name": "HubSpot CRM Companies",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/companies",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Companies/Rollouts/424/v3/companies.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-05T17:18:33.186853Z",
+        "elapsedSeconds": 71.2
+    },
+    {
+        "name": "HubSpot CRM Deals",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/deals",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Deals/Rollouts/424/v3/deals.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-05T17:18:28.671432Z",
+        "elapsedSeconds": 66.7
+    },
+    {
+        "name": "HubSpot CRM Associations",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/associations",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Associations/Rollouts/130902/v4/associations.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-05T17:18:35.973699Z",
+        "elapsedSeconds": 74.0
+    },
+    {
+        "name": "HubSpot CRM Associations Schema",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/associations",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Associations%20Schema/Rollouts/130902/2026-09/associationsSchema.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-05T17:18:36.468191Z",
+        "elapsedSeconds": 74.5
+    },
+    {
+        "name": "HubSpot CRM Owners",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/owners",
         "targetTitle": null,
         "specUrl": null,
         "specRepo": null,
@@ -126,7 +204,20 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-05T17:09:21.058872Z",
-        "elapsedSeconds": 62.0
+        "checkedAt": "2026-04-05T17:19:44.913871Z",
+        "elapsedSeconds": 68.4
+    },
+    {
+        "name": "HubSpot CRM Pipelines",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/pipelines",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Pipelines/Rollouts/145896/v3/pipelines.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-05T17:19:24.310453Z",
+        "elapsedSeconds": 47.8
     }
 ]
