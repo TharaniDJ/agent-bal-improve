@@ -1,5 +1,5 @@
 // main.bal
-// Entry point — runs the agent for each connector.
+// Entry point — runs the agent for each connector in parallel batches.
 //
 // The agent always re-checks every connector, even if a URL already
 // exists in the output file. This ensures we always find the latest.
@@ -8,6 +8,7 @@
 //   ANTHROPIC_API_KEY=sk-...  bal run .
 //   ANTHROPIC_API_KEY=sk-...  FILTER=github bal run .
 //   ANTHROPIC_API_KEY=sk-...  GITHUB_TOKEN=ghp_...  bal run .
+//   ANTHROPIC_API_KEY=sk-...  CONCURRENCY=10 bal run .
 //   DRY_RUN=true bal run .
 
 import ballerina/io;
@@ -22,12 +23,19 @@ const string BAR  = "===========================================================
 const string DASH = "----------------------------------------------------------------";
 
 public function main() returns error? {
-    string apiKey    = os:getEnv("ANTHROPIC_API_KEY");
-    string filterStr = os:getEnv("FILTER").toLowerAscii();
-    boolean dryRun   = os:getEnv("DRY_RUN").toLowerAscii() == "true";
-    string outFile   = os:getEnv("OUTPUT").length() > 0 ? os:getEnv("OUTPUT") : outputFile;
-    string ghToken   = os:getEnv("GITHUB_TOKEN");
-    string model     = os:getEnv("CLAUDE_MODEL").length() > 0 ? os:getEnv("CLAUDE_MODEL") : "claude-sonnet-4-6";
+    string apiKey      = os:getEnv("ANTHROPIC_API_KEY");
+    string filterStr   = os:getEnv("FILTER").toLowerAscii();
+    boolean dryRun     = os:getEnv("DRY_RUN").toLowerAscii() == "true";
+    string outFile     = os:getEnv("OUTPUT").length() > 0 ? os:getEnv("OUTPUT") : outputFile;
+    string ghToken     = os:getEnv("GITHUB_TOKEN");
+    string model       = os:getEnv("CLAUDE_MODEL").length() > 0 ? os:getEnv("CLAUDE_MODEL") : "claude-sonnet-4-6";
+    int    concurrency = 5;
+
+    string concStr = os:getEnv("CONCURRENCY");
+    if concStr.length() > 0 {
+        int|error parsed = int:fromString(concStr);
+        if parsed is int && parsed > 0 { concurrency = parsed; }
+    }
 
     Connector[] connectors = filterStr.length() > 0
         ? ALL_CONNECTORS.filter(c => c.name.toLowerAscii().includes(filterStr))
@@ -55,10 +63,11 @@ public function main() returns error? {
 
     io:println(BAR);
     io:println("  OpenAPI Spec Finder");
-    io:println(string `  Model  : ${model}`);
-    io:println(string `  GitHub : ${ghToken.length() > 0 ? "token set" : "no token (rate limit: 60/hr)"}`);
-    io:println(string `  Output : ${outFile}`);
-    io:println(string `  APIs   : ${connectors.length()}`);
+    io:println(string `  Model       : ${model}`);
+    io:println(string `  GitHub      : ${ghToken.length() > 0 ? "token set" : "no token (rate limit: 60/hr)"}`);
+    io:println(string `  Output      : ${outFile}`);
+    io:println(string `  APIs        : ${connectors.length()}`);
+    io:println(string `  Concurrency : ${concurrency}`);
     io:println(BAR);
     io:println("");
 
@@ -76,115 +85,77 @@ public function main() returns error? {
     int found = 0;
     int notFound = 0;
 
-    int idx = 1;
-    foreach Connector c in connectors {
-        string label = c.targetTitle is string ? string `${c.name} / ${c.targetTitle ?: ""}` : c.name;
-        io:println(string `[${lp(idx.toString(), 2)}/${connectors.length()}] ${label}`);
+    // Process connectors in parallel batches of `concurrency`
+    int batchStart = 0;
+    while batchStart < connectors.length() {
+        int batchEnd = batchStart + concurrency;
+        if batchEnd > connectors.length() { batchEnd = connectors.length(); }
 
-        string? knownUrl = ();
-        string? knownRepo = ();
-        if existingIdx.hasKey(c.name) {
-            ResultEntry prev = results[existingIdx.get(c.name)];
-            knownUrl  = prev.specUrl;
-            knownRepo = prev.specRepo;
+        Connector[] batch = connectors.slice(batchStart, batchEnd);
+        io:println(string `--- batch ${batchStart + 1}–${batchEnd} of ${connectors.length()} ---`);
+
+        // Snapshot known URLs before launching — reads only, no concurrent mutation
+        future<ResultEntry>[] futures = [];
+        Connector[] batchConnectors = [];
+        foreach Connector c in batch {
+            string? knownUrl = ();
+            string? knownRepo = ();
+            if existingIdx.hasKey(c.name) {
+                ResultEntry prev = results[existingIdx.get(c.name)];
+                knownUrl  = prev.specUrl;
+                knownRepo = prev.specRepo;
+            }
+            future<ResultEntry> f = start processConnector(c, knownUrl, knownRepo, apiKey);
+            futures.push(f);
+            batchConnectors.push(c);
         }
-        if knownUrl is string {
-            io:println(string `         prev: ${knownUrl}`);
-        }
 
-        time:Utc t0 = time:utcNow();
-        SpecResult? finalResult = ();
+        // Collect results — strands are all running; waiting in order is fine
+        int fi = 0;
+        foreach future<ResultEntry> f in futures {
+            Connector bc = batchConnectors[fi];
+            fi += 1;
 
-        if knownUrl is string {
-            // ── Path A: We have a known URL ──────────────────────────────────────
-
-            if !knownUrl.includes("raw.githubusercontent.com") {
-                // A1: Stable direct endpoint (Candid, Elastic, Mailchimp, Trello etc.)
-                // LLM-assisted check: validates URL and compares against docs page for newer version
-                log:printInfo("  [pipeline] path=stable-version-check");
-                SpecResult?|string stableResult = stepQuickVerify(knownUrl, knownRepo, c.docsUrl, apiKey);
-
-                if stableResult is SpecResult {
-                    finalResult = stableResult;
-                } else {
-                    // "DEAD" or () — fall through to full re-discovery
-                    log:printInfo("  [pipeline] stable URL dead or outdated — re-discovering");
-                    DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
-                    finalResult = stepContentVerify(disc);
-                }
-
+            ResultEntry|error waitResult = wait f;
+            ResultEntry entry;
+            if waitResult is ResultEntry {
+                entry = waitResult;
             } else {
-                // A2: GitHub raw URL — must check for newer version in parent folder
-                log:printInfo("  [pipeline] path=github-version-check");
-                SpecResult?|string checkResult = stepGithubVersionCheck(knownUrl, knownRepo, apiKey);
-
-                if checkResult is SpecResult {
-                    // Got a valid result (same or newer URL)
-                    finalResult = checkResult;
-                } else {
-                    // "DEAD" or () — need full re-discovery
-                    log:printInfo("  [pipeline] GitHub check failed — re-discovering");
-                    DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
-                    finalResult = stepContentVerify(disc);
-                }
+                // Strand panicked — treat as not_found
+                log:printInfo(string `  [${bc.name}] strand error: ${waitResult.message()}`);
+                entry = {
+                    name:           bc.name,
+                    docsUrl:        bc.docsUrl,
+                    targetTitle:    bc.targetTitle,
+                    specUrl:        (),
+                    specRepo:       (),
+                    title:          (),
+                    apiVersion:     (),
+                    format:         (),
+                    status:         "not_found",
+                    checkedAt:      time:utcToString(time:utcNow()),
+                    elapsedSeconds: 0d
+                };
             }
 
-        } else {
-            // ── Path B: No known URL — full discovery ────────────────────────────
-            log:printInfo("  [pipeline] path=full-discovery");
-            DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
-            finalResult = stepContentVerify(disc);
+            if entry.status == "found" {
+                found += 1;
+            } else {
+                notFound += 1;
+            }
+
+            if existingIdx.hasKey(entry.name) {
+                results[existingIdx.get(entry.name)] = entry;
+            } else {
+                existingIdx[entry.name] = results.length();
+                results.push(entry);
+            }
         }
 
-        decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
-
-        ResultEntry entry;
-        if finalResult is SpecResult {
-            found += 1;
-            io:println(string `  => ${finalResult.specUrl}`);
-            io:println(string `     format=${finalResult.format} | ${elapsed}s`);
-            entry = {
-                name:          c.name,
-                docsUrl:       c.docsUrl,
-                targetTitle:   c.targetTitle,
-                specUrl:       finalResult.specUrl,
-                specRepo:      finalResult.specRepo,
-                title:         finalResult.title,
-                apiVersion:    finalResult.apiVersion,
-                format:        finalResult.format,
-                status:        "found",
-                checkedAt:     time:utcToString(time:utcNow()),
-                elapsedSeconds: elapsed
-            };
-        } else {
-            notFound += 1;
-            io:println(string `  => NOT FOUND [${elapsed}s]`);
-            entry = {
-                name:          c.name,
-                docsUrl:       c.docsUrl,
-                targetTitle:   c.targetTitle,
-                specUrl:       (),
-                specRepo:      (),
-                title:         (),
-                apiVersion:    (),
-                format:        (),
-                status:        "not_found",
-                checkedAt:     time:utcToString(time:utcNow()),
-                elapsedSeconds: elapsed
-            };
-        }
-        io:println("");
-
-        if existingIdx.hasKey(c.name) {
-            int eIdx = existingIdx.get(c.name);
-            results[eIdx] = entry;
-        } else {
-            existingIdx[c.name] = results.length();
-            results.push(entry);
-        }
-
+        // Save after every batch so partial progress is never lost
         check saveResults(results, outFile);
-        idx += 1;
+        io:println("");
+        batchStart = batchEnd;
     }
 
     decimal total = rd(time:utcDiffSeconds(time:utcNow(), runStart));
@@ -192,6 +163,100 @@ public function main() returns error? {
     io:println(string `  Done in ${<int>total}s  |  found=${found}  not_found=${notFound}`);
     io:println(string `  Saved to ${outFile}`);
     io:println(BAR);
+}
+
+// ─── Per-connector work (runs in its own strand) ──────────────────────────────
+
+function processConnector(
+    Connector c,
+    string? knownUrl,
+    string? knownRepo,
+    string apiKey
+) returns ResultEntry {
+
+    string label = c.targetTitle is string ? string `${c.name} / ${c.targetTitle ?: ""}` : c.name;
+
+    if knownUrl is string {
+        io:println(string `[start] ${label}  (prev: ${knownUrl})`);
+    } else {
+        io:println(string `[start] ${label}`);
+    }
+
+    time:Utc t0 = time:utcNow();
+    SpecResult? finalResult = ();
+
+    if knownUrl is string {
+        // ── Path A: We have a known URL ──────────────────────────────────────
+
+        if !knownUrl.includes("raw.githubusercontent.com") {
+            // A1: Stable direct endpoint — LLM validates and checks for newer version
+            log:printInfo(string `  [${c.name}] path=stable-version-check`);
+            SpecResult?|string stableResult = stepQuickVerify(knownUrl, knownRepo, c.docsUrl, apiKey);
+
+            if stableResult is SpecResult {
+                finalResult = stableResult;
+            } else {
+                log:printInfo(string `  [${c.name}] stable URL dead or outdated — re-discovering`);
+                DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+                finalResult = stepContentVerify(disc);
+            }
+
+        } else {
+            // A2: GitHub raw URL — check for newer version in parent folder
+            log:printInfo(string `  [${c.name}] path=github-version-check`);
+            SpecResult?|string checkResult = stepGithubVersionCheck(knownUrl, knownRepo, apiKey);
+
+            if checkResult is SpecResult {
+                finalResult = checkResult;
+            } else {
+                log:printInfo(string `  [${c.name}] GitHub check failed — re-discovering`);
+                DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+                finalResult = stepContentVerify(disc);
+            }
+        }
+
+    } else {
+        // ── Path B: No known URL — full discovery ────────────────────────────
+        log:printInfo(string `  [${c.name}] path=full-discovery`);
+        DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+        finalResult = stepContentVerify(disc);
+    }
+
+    decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
+
+    if finalResult is SpecResult {
+        io:println(string `[done ] ${label}`);
+        io:println(string `  => ${finalResult.specUrl}`);
+        io:println(string `     format=${finalResult.format} | ${elapsed}s`);
+        return {
+            name:           c.name,
+            docsUrl:        c.docsUrl,
+            targetTitle:    c.targetTitle,
+            specUrl:        finalResult.specUrl,
+            specRepo:       finalResult.specRepo,
+            title:          finalResult.title,
+            apiVersion:     finalResult.apiVersion,
+            format:         finalResult.format,
+            status:         "found",
+            checkedAt:      time:utcToString(time:utcNow()),
+            elapsedSeconds: elapsed
+        };
+    } else {
+        io:println(string `[done ] ${label} => NOT FOUND [${elapsed}s]`);
+        return {
+            name:           c.name,
+            docsUrl:        c.docsUrl,
+            targetTitle:    c.targetTitle,
+            specUrl:        (),
+            specRepo:       (),
+            title:          (),
+            apiVersion:     (),
+            format:         (),
+            status:         "not_found",
+            checkedAt:      time:utcToString(time:utcNow()),
+            elapsedSeconds: elapsed
+        };
+    }
 }
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
