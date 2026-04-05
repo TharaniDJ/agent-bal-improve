@@ -199,6 +199,7 @@ function callClaude(string apiKey, string model, json[] messages, string systemP
     json body = {
         "model": model,
         "max_tokens": 1024,
+        "temperature": 0,
         "system": systemPrompt,
         "tools": [FETCH_PAGE_TOOL],
         "messages": messages
