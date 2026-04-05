@@ -100,13 +100,15 @@ public function main() returns error? {
 
             if !knownUrl.includes("raw.githubusercontent.com") {
                 // A1: Stable direct endpoint (Candid, Elastic, Mailchimp, Trello etc.)
-                // HEAD check + content sniff is enough — these always serve current version
-                log:printInfo("  [pipeline] path=stable-endpoint");
-                finalResult = stepQuickVerify(knownUrl, knownRepo);
+                // LLM-assisted check: validates URL and compares against docs page for newer version
+                log:printInfo("  [pipeline] path=stable-version-check");
+                SpecResult?|string stableResult = stepQuickVerify(knownUrl, knownRepo, c.docsUrl, apiKey);
 
-                if finalResult is () {
-                    // URL is dead — fall through to full re-discovery
-                    log:printInfo("  [pipeline] stable URL dead — re-discovering");
+                if stableResult is SpecResult {
+                    finalResult = stableResult;
+                } else {
+                    // "DEAD" or () — fall through to full re-discovery
+                    log:printInfo("  [pipeline] stable URL dead or outdated — re-discovering");
                     DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
                     finalResult = stepContentVerify(disc);
                 }

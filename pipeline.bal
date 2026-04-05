@@ -28,8 +28,10 @@ import ballerina/os;
 
 public function stepQuickVerify(
     string? knownSpecUrl,
-    string? knownSpecRepo
-) returns SpecResult? {
+    string? knownSpecRepo,
+    string docsUrl,
+    string anthropicKey
+) returns SpecResult?|string {
 
     if knownSpecUrl is () {
         log:printInfo("  [step1] no known URL — proceeding to discovery");
@@ -42,30 +44,228 @@ public function stepQuickVerify(
         return ();
     }
 
-    log:printInfo(string `  [step1] stable endpoint check: ${knownSpecUrl}`);
+    // Non-GitHub stable endpoints: use LLM to validate AND check for a newer version
+    log:printInfo(string `  [step1] stable endpoint — LLM version check: ${knownSpecUrl}`);
+    return stepStableVersionCheck(knownSpecUrl, docsUrl, knownSpecRepo, anthropicKey);
+}
 
-    if !headOk(knownSpecUrl) {
-        log:printInfo("  [step1] URL is dead — triggering re-discovery");
+// ─── STEP 1b: Stable Version Check (LLM-assisted) ────────────────────────────
+// For non-GitHub stable endpoints (CDN, API gateway, developer portals).
+// Claude fetches the docs page to determine whether the known URL is still the
+// latest stable version, and returns the best URL it finds.
+//
+// Returns:
+//   SpecResult  → valid URL (same or newer)
+//   "DEAD"      → known URL is gone or no longer a spec
+//   ()          → agent error/timeout
+
+const string STABLE_CHECK_SYSTEM_PROMPT =
+    "You are verifying whether a known OpenAPI/Swagger spec URL is still the LATEST STABLE version.\n" +
+    "\n" +
+    "## Tool: fetch_page\n" +
+    "Fetches a URL. Returns:\n" +
+    "  - HTML page  → { spec_links: [...], page_text: \"...\", other_links: [...] }\n" +
+    "  - JSON file  → { type: \"json\", content: \"<first 4 KB>\" }\n" +
+    "  - YAML file  → { type: \"yaml\", content: \"<first 4 KB>\" }\n" +
+    "\n" +
+    "Rules:\n" +
+    "  - Maximum 6 fetch_page calls total\n" +
+    "  - Never fetch the same URL twice\n" +
+    "  - Never fetch github.com/blob/ or github.com/tree/ pages\n" +
+    "\n" +
+    "## Your task — follow these steps in order\n" +
+    "\n" +
+    "### Step 1: Validate the known URL\n" +
+    "Fetch the known spec URL.\n" +
+    "  - If the fetch fails (404, error) OR the content does not contain\n" +
+    "    openapi:, swagger:, \"openapi\", or \"swagger\" → output DEAD immediately.\n" +
+    "  - If valid → note the spec content and proceed to Step 2.\n" +
+    "\n" +
+    "### Step 2: Fetch the docs page\n" +
+    "ALWAYS fetch the docs URL next — it is the authoritative source for the\n" +
+    "current latest version.\n" +
+    "  - Scan spec_links, other_links, and page_text for any URL ending in\n" +
+    "    .yaml or .json, or containing: openapi, swagger, spec, reference, download\n" +
+    "  - Read page text to identify which API versions are mentioned and which\n" +
+    "    is marked as 'latest', 'current', 'stable', or 'GA'\n" +
+    "  - If the page lists versioned spec URLs, identify the one with the\n" +
+    "    highest stable version number\n" +
+    "  - If there is a changelog or release-notes link, you MAY fetch it (counts\n" +
+    "    toward your fetch budget) to confirm the current stable release\n" +
+    "\n" +
+    "### Step 3: Compare and decide\n" +
+    "  - If the docs page reveals a NEWER stable spec URL than the known URL\n" +
+    "    → return the newer URL\n" +
+    "  - If the known URL is already the latest stable version\n" +
+    "    → return the known URL unchanged\n" +
+    "  - If the docs page yields no spec links at all\n" +
+    "    → return the known URL unchanged (it was valid per Step 1)\n" +
+    "\n" +
+    "## Stability rules — apply to every URL you consider\n" +
+    "NEVER return a URL that contains any of these labels:\n" +
+    "  alpha, beta, rc, preview, dev, snapshot, canary, nightly,\n" +
+    "  staging, draft, wip, experimental, pre-release, next, edge\n" +
+    "Among multiple stable candidates, always pick the one with the highest\n" +
+    "version number or most recent date.\n" +
+    "\n" +
+    "## Output format — EXACTLY one of these, no other text\n" +
+    "\n" +
+    "When a valid stable spec URL is confirmed:\n" +
+    "STABLE_CHECK_RESULT:\n" +
+    "URL: https://raw-or-direct-download-url\n" +
+    "REPO: owner/repo\n" +
+    "\n" +
+    "(REPO line is optional — omit if not applicable)\n" +
+    "\n" +
+    "When the known URL is dead or content is not a spec:\n" +
+    "STABLE_CHECK_RESULT:\n" +
+    "DEAD\n";
+
+public function stepStableVersionCheck(
+    string knownSpecUrl,
+    string docsUrl,
+    string? knownSpecRepo,
+    string anthropicKey
+) returns SpecResult?|string {
+
+    log:printInfo(string `  [step1b] stable version check: ${knownSpecUrl}`);
+
+    string userMsg = string `Verify this OpenAPI spec URL and check if it is still the latest stable version.
+
+Known spec URL: ${knownSpecUrl}
+Docs URL: ${docsUrl}
+
+Steps:
+1. Fetch the known spec URL to confirm it is still a valid OpenAPI/Swagger spec.
+   If it is dead or not a spec → output DEAD.
+2. Fetch the docs URL to check for any newer stable spec version.
+   Look for spec links (.yaml, .json, openapi, swagger) and version indicators.
+3. Return the best stable URL found (newer if available, otherwise the known URL).
+
+Return STABLE_CHECK_RESULT.`;
+
+    json[] messages = [{"role": "user", "content": userMsg}];
+    map<boolean> fetched = {};
+    string model = os:getEnv("CLAUDE_MODEL");
+    if model.length() == 0 { model = "claude-sonnet-4-6"; }
+    int maxTurns = 9;
+    int turn = 0;
+
+    while turn < maxTurns {
+        turn += 1;
+        log:printInfo(string `  [step1b turn ${turn}]`);
+
+        json|error resp = callClaude(anthropicKey, model, messages, STABLE_CHECK_SYSTEM_PROMPT);
+        if resp is error {
+            log:printInfo(string `  [step1b error] ${resp.message()}`);
+            return ();
+        }
+
+        string stopReason = "";
+        json[] blocks = [];
+        if resp is map<json> {
+            json? sr = resp["stop_reason"];
+            if sr is string { stopReason = sr; }
+            json? cb = resp["content"];
+            if cb is json[] { blocks = cb; }
+        }
+
+        string text = "";
+        json[] toolBlocks = [];
+        foreach json blk in blocks {
+            if blk is map<json> {
+                json? t = blk["type"];
+                if t == "text" {
+                    json? tv = blk["text"];
+                    if tv is string { text += tv; }
+                } else if t == "tool_use" {
+                    toolBlocks.push(blk);
+                }
+            }
+        }
+
+        if text.length() > 0 {
+            int preview = text.length() > 400 ? 400 : text.length();
+            log:printInfo(string `  [step1b claude] ${text.substring(0, preview)}`);
+        }
+
+        if text.includes("STABLE_CHECK_RESULT:") {
+            return parseStableCheckResult(text, knownSpecUrl, knownSpecRepo);
+        }
+
+        if stopReason == "tool_use" && toolBlocks.length() > 0 {
+            messages.push({"role": "assistant", "content": blocks});
+            json[] results = [];
+            foreach json tb in toolBlocks {
+                if tb is map<json> {
+                    string toolId = "";
+                    json? tid = tb["id"];
+                    if tid is string { toolId = tid; }
+                    string output = "{\"error\":\"invalid call\"}";
+                    json? inp = tb["input"];
+                    if inp is map<json> {
+                        json? urlVal = inp["url"];
+                        if urlVal is string {
+                            if fetched.hasKey(urlVal) {
+                                output = "{\"error\":\"already fetched\"}";
+                            } else {
+                                fetched[urlVal] = true;
+                                output = executeFetchPage(urlVal);
+                            }
+                        }
+                    }
+                    results.push({"type": "tool_result", "tool_use_id": toolId, "content": output});
+                }
+            }
+            messages.push({"role": "user", "content": results});
+            continue;
+        }
+
+        if stopReason == "end_turn" {
+            messages.push({"role": "assistant", "content": blocks});
+            messages.push({"role": "user", "content": "Output STABLE_CHECK_RESULT now."});
+            continue;
+        }
+
+        break;
+    }
+
+    return ();
+}
+
+function parseStableCheckResult(string text, string fallbackUrl, string? fallbackRepo) returns SpecResult?|string {
+    int? idx = text.indexOf("STABLE_CHECK_RESULT:");
+    if idx is () { return (); }
+    string after = text.substring(idx + 20).trim();
+
+    if after.startsWith("DEAD") {
+        log:printInfo("  [step1b] known URL is DEAD — triggering re-discovery");
+        return "DEAD";
+    }
+
+    string[] lines = splitLines(after);
+    string url = "";
+    string repo = fallbackRepo ?: "";
+
+    foreach string line in lines {
+        string t = line.trim();
+        if t.startsWith("URL:") { url = t.substring(4).trim(); }
+        else if t.startsWith("REPO:") { repo = t.substring(5).trim(); }
+    }
+
+    // Fall back to the known URL if Claude returned nothing parseable
+    if url.length() == 0 { url = fallbackUrl; }
+
+    if !headOk(url) {
+        log:printInfo(string `  [step1b] returned URL failed HEAD check: ${url}`);
         return ();
     }
 
-    // Confirm it still looks like a spec (100KB for large specs)
-    string|error body = httpGetBodyPartial(knownSpecUrl, 100000);
-    if body is error {
-        log:printInfo("  [step1] content check failed — triggering re-discovery");
-        return ();
-    }
-
-    if !looksLikeSpec(body) {
-        log:printInfo("  [step1] content is not a spec — triggering re-discovery");
-        return ();
-    }
-
-    string fmt = knownSpecUrl.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-    log:printInfo("  [step1] stable URL confirmed valid — done");
+    string fmt = url.toLowerAscii().endsWith(".json") ? "json" : "yaml";
+    log:printInfo(string `  [step1b] confirmed: ${url}`);
     return {
-        specUrl: knownSpecUrl,
-        specRepo: knownSpecRepo,
+        specUrl: url,
+        specRepo: repo.length() > 0 ? repo : fallbackRepo,
         title: (),
         apiVersion: (),
         format: fmt
