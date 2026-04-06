@@ -9,8 +9,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-06T05:57:44.657547Z",
-        "elapsedSeconds": 36.9
+        "checkedAt": "2026-04-06T09:09:04.135262Z",
+        "elapsedSeconds": 37.6
     },
     {
         "name": "Mailchimp Marketing",
@@ -22,21 +22,21 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-06T05:58:47.507122Z",
-        "elapsedSeconds": 98.4
+        "checkedAt": "2026-04-06T09:09:26.210930Z",
+        "elapsedSeconds": 58.4
     },
     {
         "name": "Mailchimp Transactional",
         "docsUrl": "https://mailchimp.com/developer/transactional/api/",
         "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/mandrillapp.com/1.0/swagger.yaml",
+        "specUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/mailchimp.com/3.0.55/openapi.yaml",
         "specRepo": "APIs-guru/openapi-directory",
         "title": null,
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-06T05:57:35.506080Z",
-        "elapsedSeconds": 26.4
+        "checkedAt": "2026-04-06T09:09:13.174140Z",
+        "elapsedSeconds": 45.3
     },
     {
         "name": "Microsoft OneDrive",
@@ -48,21 +48,21 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-06T05:58:59.598097Z",
-        "elapsedSeconds": 110.4
+        "checkedAt": "2026-04-06T09:09:11.676095Z",
+        "elapsedSeconds": 43.8
     },
     {
         "name": "OpenAI",
-        "docsUrl": "https://platform.openai.com/docs/api-reference/introduction",
+        "docsUrl": "https://github.com/openai/openai-openapi",
         "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/openai.com/1.2.0/openapi.yaml",
+        "specUrl": "https://raw.githubusercontent.com/openai/openai-openapi/2025-03-21/openapi.yaml",
         "specRepo": "openai/openai-openapi",
         "title": null,
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-06T05:57:42.474962Z",
-        "elapsedSeconds": 33.3
+        "checkedAt": "2026-04-06T09:09:13.647026Z",
+        "elapsedSeconds": 45.7
     },
     {
         "name": "PayPal Invoices",
@@ -74,8 +74,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-06T05:59:20.844597Z",
-        "elapsedSeconds": 21.2
+        "checkedAt": "2026-04-06T09:10:09.165427Z",
+        "elapsedSeconds": 42.9
     },
     {
         "name": "PayPal Orders",
@@ -87,8 +87,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-06T05:59:19.577338Z",
-        "elapsedSeconds": 19.9
+        "checkedAt": "2026-04-06T09:10:15.751661Z",
+        "elapsedSeconds": 49.5
     },
     {
         "name": "PayPal Payments",
@@ -100,8 +100,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-06T05:59:52.545519Z",
-        "elapsedSeconds": 52.9
+        "checkedAt": "2026-04-06T09:10:00.657625Z",
+        "elapsedSeconds": 34.4
     },
     {
         "name": "PayPal Subscriptions",
@@ -113,20 +113,20 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-06T05:59:17.050880Z",
-        "elapsedSeconds": 17.4
+        "checkedAt": "2026-04-06T09:10:10.969264Z",
+        "elapsedSeconds": 44.7
     },
     {
         "name": "Salesforce Marketing Cloud",
-        "docsUrl": "https://developer.salesforce.com/docs/marketing/marketing-cloud/guide/apis-overview.html",
+        "docsUrl": "https://github.com/salesforce-marketingcloud/mcsdk-automation-framework-core",
         "targetTitle": null,
-        "specUrl": null,
-        "specRepo": null,
+        "specUrl": "https://raw.githubusercontent.com/salesforce-marketingcloud/mcsdk-automation-framework-core/master/resources/sfmc-openapi-v2.json",
+        "specRepo": "salesforce-marketingcloud/mcsdk-automation-framework-core",
         "title": null,
         "apiVersion": null,
-        "format": null,
-        "status": "not_found",
-        "checkedAt": "2026-04-06T05:59:51.065462Z",
-        "elapsedSeconds": 51.4
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-06T09:09:54.152058Z",
+        "elapsedSeconds": 27.9
     }
 ]
