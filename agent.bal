@@ -1,10 +1,18 @@
 // agent.bal
 // Shared utilities used by all pipeline steps:
-//   - executeFetchPage()  — tool handler (HTML/JSON/YAML fetch + parse)
-//   - callClaude()        — Anthropic API call
-//   - httpGetBody()       — raw HTTP GET, with dynamic SPA detection + browser fallback
-//   - headOk()            — HEAD check
+//   - executeFetchPage()        — tool handler (HTML/JSON/YAML fetch + parse)
+//   - callClaude()              — Anthropic API call
+//   - httpGetBody()             — raw HTTP GET, SPA rendering via Browserless API
+//   - headOk()                  — HEAD check
 //   - HTML/string utils
+//
+// SPA rendering is handled by the Browserless.io cloud API.
+// Sign up at https://browserless.io (free tier: 1,000 units/month).
+// Set BROWSERLESS_TOKEN env var to your API token.
+// If BROWSERLESS_TOKEN is not set, falls back to plain HTTP.
+//
+// Usage:
+//   ANTHROPIC_API_KEY=sk-... BROWSERLESS_TOKEN=your-token bal run .
 
 import ballerina/http;
 import ballerina/log;
@@ -30,11 +38,6 @@ final json FETCH_PAGE_TOOL = {
     }
 };
 
-// ─── Browser service port ─────────────────────────────────────────────────────
-// The headless browser sidecar (browser-service/server.js) runs on this port.
-// Start it with: node browser-service/server.js
-const int BROWSER_SERVICE_PORT = 3456;
-
 // ─── fetch_page tool handler ──────────────────────────────────────────────────
 
 const string EMPTY_HTML_RESULT = "{\"type\":\"html\",\"spec_links\":[],\"page_text\":\"\",\"other_links\":[]}";
@@ -46,9 +49,6 @@ function executeFetchPage(string url) returns string {
         string|error body = httpGetBody(url);
         if body is error {
             log:printInfo(string `      error: ${body.message()}`);
-            // For HTML docs pages return an empty-but-valid HTML result so Claude can
-            // continue reasoning (fall back to GitHub). For spec/API files return the
-            // error so Claude knows the URL is unreachable.
             if !isRawContentUrl(url) {
                 return EMPTY_HTML_RESULT;
             }
@@ -99,8 +99,6 @@ function executeFetchPage(string url) returns string {
 
         return string `{"type":"html","spec_links":${jsonArr(specLinks)},"page_text":${jsonStr(txtSnippet)},"other_links":${jsonArr(otherLinks.slice(0, otherCap))}}`;
     } on fail error e {
-        // Safety net: unexpected error during fetch or HTML parsing.
-        // Always return valid JSON so Claude is never left waiting.
         log:printInfo(string `      [fetch] unexpected error: ${e.message()}`);
         return EMPTY_HTML_RESULT;
     }
@@ -231,45 +229,59 @@ isolated function isRawContentUrl(string url) returns boolean {
     return false;
 }
 
-// Checks if the headless browser service is running on localhost.
-isolated function isBrowserServiceAvailable() returns boolean {
-    do {
-        http:Client cl = check new (string `http://localhost:${BROWSER_SERVICE_PORT}`, {timeout: 2});
-        http:Response r = check cl->get("/health");
-        return r.statusCode == 200;
-    } on fail {
-        return false;
+// Fetches a URL via the Browserless.io /content REST API.
+// This renders the page in a real headless Chrome instance (including JS/SPAs)
+// and returns the fully-rendered HTML — equivalent to what server.js did.
+//
+// Key request options:
+//   gotoOptions.waitUntil = "networkidle2"  — wait for JS to settle (mirrors old server.js)
+//   gotoOptions.timeout   = 30000           — 30s navigation timeout
+//   bestAttempt           = true            — return best-effort HTML even if some resources fail
+//
+// Docs: https://docs.browserless.io/rest-apis/content
+function httpGetBodyViaBrowserless(string url) returns string|error {
+    string token = os:getEnv("BROWSERLESS_TOKEN");
+    if token.length() == 0 {
+        return error("BROWSERLESS_TOKEN not set");
     }
-}
 
-// Fetches a SPA URL via the headless browser service.
-// Returns the rendered HTML, or an error if the service is unavailable or slow.
-// Timeout is intentionally short — fail fast rather than block the pipeline.
-function httpGetBodyViaBrowser(string url) returns string|error {
-    log:printInfo(string `    [browser-fetch] ${url}`);
-    http:Client cl = check new (string `http://localhost:${BROWSER_SERVICE_PORT}`, {timeout: 20});
-    http:Response resp = check cl->get(string `/fetch?url=${url}`);
+    log:printInfo(string `    [browserless] ${url}`);
+
+    http:Client cl = check new ("https://production-sfo.browserless.io", {
+        timeout: 35,
+        secureSocket: {enable: true}
+    });
+
+    json payload = {
+        "url": url,
+        "gotoOptions": {
+            "waitUntil": "networkidle2",
+            "timeout": 30000
+        },
+        "bestAttempt": true
+    };
+
+    http:Response resp = check cl->post(
+        string `/content?token=${token}`,
+        payload,
+        {
+            "Content-Type": "application/json",
+            "Cache-Control": "no-cache"
+        }
+    );
+
     if resp.statusCode != 200 {
         string errBody = check resp.getTextPayload();
-        return error(string `Browser service error ${resp.statusCode}: ${errBody}`);
+        int cap = errBody.length() > 200 ? 200 : errBody.length();
+        return error(string `Browserless ${resp.statusCode}: ${errBody.substring(0, cap)}`);
     }
-    json respJson = check resp.getJsonPayload();
-    if respJson is map<json> {
-        json? htmlVal = respJson["html"];
-        if htmlVal is string {
-            // Cap at 50KB — enough to find Download OpenAPI links, avoids Claude context overflow
-            string capped = htmlVal.length() > 50000 ? htmlVal.substring(0, 50000) : htmlVal;
-            log:printInfo(string `    [browser-fetch] OK — ${htmlVal.length()} bytes (capped to ${capped.length()})`);
-            return capped;
-        }
-        json? errVal = respJson["error"];
-        if errVal is string {
-            return error(string `Browser service: ${errVal}`);
-        }
-    }
-    return error("Browser service returned unexpected response");
-}
 
+    string body = check resp.getTextPayload();
+    // Cap at 50KB — enough to find Download OpenAPI links, avoids Claude context overflow
+    string capped = body.length() > 50000 ? body.substring(0, 50000) : body;
+    log:printInfo(string `    [browserless] OK — ${body.length()} bytes (capped to ${capped.length()})`);
+    return capped;
+}
 
 function httpGetBody(string url) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
@@ -292,16 +304,16 @@ function httpGetBody(string url) returns string|error {
         return check resp.getTextPayload();
     }
 
-    // HTML docs pages always go through the headless browser service.
-    // This handles SPAs, JS-rendered pages, and any site that blocks plain HTTP —
-    // without needing to know in advance which domains require it.
-    if isBrowserServiceAvailable() {
-        return httpGetBodyViaBrowser(url);
+    // HTML docs pages: use Browserless cloud API for JS-rendered SPA pages.
+    // Falls back to plain HTTP if BROWSERLESS_TOKEN is not set.
+    string browserlessToken = os:getEnv("BROWSERLESS_TOKEN");
+    if browserlessToken.length() > 0 {
+        return httpGetBodyViaBrowserless(url);
     }
 
-    // Browser service not running — fall back to plain HTTP with a short timeout.
-    log:printInfo(string `    [browser-warn] browser service not running — plain HTTP fallback for ${url}`);
-    log:printInfo("    [browser-warn] Start with: node browser-service/server.js");
+    // No Browserless token — fall back to plain HTTP with a short timeout.
+    log:printInfo(string `    [browser-warn] BROWSERLESS_TOKEN not set — plain HTTP fallback for ${url}`);
+    log:printInfo("    [browser-warn] SPA pages may return empty results. Set BROWSERLESS_TOKEN for reliable rendering.");
     http:Client cl = check new (url, {
         followRedirects: {enabled: true, maxCount: 5},
         timeout: 8,
