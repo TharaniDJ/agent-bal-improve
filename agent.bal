@@ -2,22 +2,22 @@
 // Shared utilities used by all pipeline steps:
 //   - executeFetchPage()        — tool handler (HTML/JSON/YAML fetch + parse)
 //   - callClaude()              — Anthropic API call
-//   - httpGetBody()             — raw HTTP GET, SPA rendering via Browserless API
+//   - httpGetBody()             — raw HTTP GET, with Browserless fallback for SPAs
 //   - headOk()                  — HEAD check
 //   - HTML/string utils
 //
-// SPA rendering is handled by the Browserless.io cloud API.
-// Sign up at https://browserless.io (free tier: 1,000 units/month).
-// Set BROWSERLESS_TOKEN env var to your API token.
-// If BROWSERLESS_TOKEN is not set, falls back to plain HTTP.
+// Fetching strategy for HTML docs pages:
+//   1. Try plain HTTP first (fast, no cost, works for static sites)
+//   2. If result has < 500 chars of visible text → SPA detected → use Browserless
+//   3. Browserless retries up to 3x with backoff on 429 (rate limit)
+//   4. If Browserless also fails → return whatever plain HTTP gave us
 //
-// Usage:
-//   ANTHROPIC_API_KEY=sk-... BROWSERLESS_TOKEN=your-token bal run .
+// Set BROWSERLESS_TOKEN env var. Free tier at https://browserless.io
 
 import ballerina/http;
 import ballerina/log;
 import ballerina/os;
-import ballerina/lang.runtime;
+import ballerina/lang.runtime as runtime;
 
 // ─── Tool definition ─────────────────────────────────────────────────────────
 
@@ -233,12 +233,10 @@ isolated function isRawContentUrl(string url) returns boolean {
 }
 
 // Fetches a URL via the Browserless.io /content REST API.
-// Renders the page in a real headless Chrome instance (handles JS/SPAs).
+// Renders the page in a real headless Chrome instance — handles JS/SPAs,
+// returns fully-rendered HTML including dynamically injected content and links.
 //
-// Retries once on 429 (Too Many Requests) with a 5s backoff — the free tier
-// throttles concurrent requests, which happens when 5 connectors run in
-// parallel and all try to fetch SPA docs pages at the same time.
-//
+// Retries up to 3x on 429 (Too Many Requests) with increasing backoff.
 // Docs: https://docs.browserless.io/rest-apis/content
 function httpGetBodyViaBrowserless(string url) returns string|error {
     string token = os:getEnv("BROWSERLESS_TOKEN");
@@ -248,7 +246,7 @@ function httpGetBodyViaBrowserless(string url) returns string|error {
 
     int maxAttempts = 3;
     int attempt = 0;
-    int[] backoffMs = [5000, 15000, 30000]; // 5s, 15s, 30s
+    int[] backoffMs = [5000, 15000, 30000];
 
     while attempt < maxAttempts {
         attempt += 1;
@@ -260,18 +258,13 @@ function httpGetBodyViaBrowserless(string url) returns string|error {
         }
 
         string errMsg = result.message();
-
-        // 429: rate limited — wait and retry
-        if errMsg.includes("429") {
-            if attempt < maxAttempts {
-                int waitMs = backoffMs[attempt - 1];
-                log:printInfo(string `    [browserless] 429 rate limited — waiting ${waitMs}ms before retry`);
-                runtime:sleep(<decimal>waitMs / 1000d);
-                continue;
-            }
+        if errMsg.includes("429") && attempt < maxAttempts {
+            int waitMs = backoffMs[attempt - 1];
+            log:printInfo(string `    [browserless] 429 rate limited — waiting ${waitMs}ms before retry`);
+            runtime:sleep(<decimal>waitMs / 1000d);
+            continue;
         }
 
-        // Non-retryable error — fall through to plain HTTP
         log:printInfo(string `    [browserless] failed: ${errMsg}`);
         return result;
     }
@@ -310,11 +303,17 @@ function doSingleBrowserlessFetch(string url, string token) returns string|error
     }
 
     string body = check resp.getTextPayload();
-    // Cap at 50KB — enough to find Download OpenAPI links, avoids Claude context overflow
-    string capped = body.length() > 50000 ? body.substring(0, 50000) : body;
+    // Cap at 500KB — large enough to capture spec links deep in long pages
+    // (e.g. Mailchimp's spec link appears after ~200KB of endpoint docs)
+    string capped = body.length() > 500000 ? body.substring(0, 500000) : body;
     log:printInfo(string `    [browserless] OK — ${body.length()} bytes (capped to ${capped.length()})`);
     return capped;
 }
+
+// Minimum visible text length to consider a plain-HTTP response "useful".
+// Pages below this threshold are treated as SPA shells and retried via Browserless.
+// 500 chars is enough to detect a real page vs an empty React/Vue container.
+const int MIN_USEFUL_TEXT_LENGTH = 500;
 
 function httpGetBody(string url) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
@@ -337,25 +336,28 @@ function httpGetBody(string url) returns string|error {
         return check resp.getTextPayload();
     }
 
-    // HTML docs pages: try plain HTTP first (faster, no rate limits).
-    // Only fall back to Browserless if the response looks like an empty SPA shell.
-    string|error plainResult = httpGetBodyPlain(url, headers);
+    // HTML docs pages strategy:
+    //   1. Try plain HTTP with a generous 500KB cap
+    //   2. Check if the response has enough visible text to be useful
+    //   3. If not (SPA shell) — use Browserless for full JS rendering
+    //
+    // The 500KB cap is important: some pages (like Mailchimp) embed the spec
+    // version link deep in the body, after hundreds of KB of endpoint docs.
+    string|error plainResult = httpGetBodyPlain(url, headers, 500000);
+
     if plainResult is string {
-        // Check if the response is a meaningful page or just an empty SPA shell.
-        // A real page has substantial text content; an SPA shell is mostly script tags.
-        string trimmed = plainResult.trim();
-        string textContent = htmlText(trimmed);
-        // If we got a reasonable amount of visible text, plain HTTP worked fine.
-        if textContent.length() > 500 {
-            log:printInfo(string `    [plain-http] OK — ${plainResult.length()} bytes`);
+        string textContent = htmlText(plainResult);
+        if textContent.length() >= MIN_USEFUL_TEXT_LENGTH {
+            // Plain HTTP returned a real page with enough content
+            log:printInfo(string `    [plain-http] OK — ${plainResult.length()} bytes (${textContent.length()} chars text)`);
             return plainResult;
         }
-        log:printInfo(string `    [plain-http] SPA detected (only ${textContent.length()} chars of text) — trying Browserless`);
+        log:printInfo(string `    [plain-http] SPA detected (only ${textContent.length()} chars text) — trying Browserless`);
     } else {
         log:printInfo(string `    [plain-http] failed: ${plainResult.message()} — trying Browserless`);
     }
 
-    // Plain HTTP returned an empty/thin page — use Browserless for JS rendering.
+    // Use Browserless for full JS rendering
     string browserlessToken = os:getEnv("BROWSERLESS_TOKEN");
     if browserlessToken.length() > 0 {
         string|error browserResult = httpGetBodyViaBrowserless(url);
@@ -364,21 +366,22 @@ function httpGetBody(string url) returns string|error {
         }
         log:printInfo(string `    [browserless] also failed: ${browserResult.message()} — using plain HTTP fallback`);
     } else {
-        log:printInfo("    [browser-warn] BROWSERLESS_TOKEN not set — SPA pages may return empty results.");
+        log:printInfo("    [browser-warn] BROWSERLESS_TOKEN not set — SPA pages may have missing content.");
     }
 
-    // Last resort: return whatever plain HTTP gave us (even if thin)
+    // Last resort: return whatever plain HTTP gave us
     if plainResult is string {
         return plainResult;
     }
     return plainResult;
 }
 
-// Plain HTTP fetch with short timeout for docs pages.
-function httpGetBodyPlain(string url, map<string|string[]> headers) returns string|error {
+// Plain HTTP fetch. maxBytes controls how much of the response body we keep.
+// Using 500KB instead of the old 150KB to avoid cutting off content in long pages.
+function httpGetBodyPlain(string url, map<string|string[]> headers, int maxBytes) returns string|error {
     http:Client cl = check new (url, {
         followRedirects: {enabled: true, maxCount: 5},
-        timeout: 8,
+        timeout: 12,
         secureSocket: {enable: true}
     });
     http:Response resp = check cl->get("", headers);
@@ -386,7 +389,7 @@ function httpGetBodyPlain(string url, map<string|string[]> headers) returns stri
         return error(string `HTTP ${resp.statusCode}`);
     }
     string body = check resp.getTextPayload();
-    return body.length() > 150000 ? body.substring(0, 150000) : body;
+    return body.length() > maxBytes ? body.substring(0, maxBytes) : body;
 }
 
 function headOk(string url) returns boolean {
