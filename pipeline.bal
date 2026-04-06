@@ -105,8 +105,11 @@ const string STABLE_CHECK_SYSTEM_PROMPT =
     "NEVER return a URL that contains any of these labels:\n" +
     "  alpha, beta, rc, preview, dev, snapshot, canary, nightly,\n" +
     "  staging, draft, wip, experimental, pre-release, next, edge\n" +
-    "Among multiple stable candidates, always pick the one with the highest\n" +
-    "version number or most recent date.\n" +
+    "Among multiple stable candidates, pick the best using this priority:\n" +
+    "  1. Named semantic version (v3, v4, v2, etc.) — HIGHEST number wins\n" +
+    "  2. Date-based version (2024-01, 20240101, etc.) — only if NO named\n" +
+    "     version folders/files exist; dates can be prereleases or snapshots\n" +
+    "  3. If both types are present, ALWAYS prefer the named version over any date.\n" +
     "\n" +
     "## Output format — EXACTLY one of these, no other text\n" +
     "\n" +
@@ -302,8 +305,12 @@ const string GITHUB_CHECK_SYSTEM_PROMPT =
     "   - If valid → proceed to step 2\n" +
     "2. Check the parent folder using the Contents API for newer siblings:\n" +
     "   - List the parent folder and look for other spec files or subfolders\n" +
-    "   - If multiple spec files exist, prefer the one with the highest version\n" +
-    "     or most recently updated (use git/commits?path=... if needed)\n" +
+    "   - If multiple spec files or version folders exist, pick the best using\n" +
+    "     this VERSION PRIORITY (apply in order):\n" +
+    "       a. Named semantic version folders/files (v3, v4, v2 …) — highest wins\n" +
+    "       b. Date-based folders/files (2024-01, 20240101 …) — only if NO\n" +
+    "          named version siblings exist; dates can be prereleases or snapshots\n" +
+    "       c. If both types present, ALWAYS prefer named version over any date\n" +
     "   - Prefer files whose name contains: openapi, swagger, api, spec\n" +
     "   - Skip folders or files that appear to be staging, preview, or draft versions\n" +
     "3. If a newer version exists → return it. Otherwise → return the original.\n" +
@@ -507,8 +514,10 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "    (look for version numbers in headings, navigation, URL paths, or page_text)\n" +
     "  - Identify the HIGHEST stable version — the one marked as 'latest', 'current',\n" +
     "    'stable', 'GA', or carrying the highest semver/date number\n" +
-    "  - If the page lists versioned spec URLs (e.g. /v2/openapi.yaml, /v3/openapi.yaml),\n" +
-    "    pick the one with the highest stable version number\n" +
+    "  - If the page lists versioned spec URLs, apply VERSION TYPE PRIORITY:\n" +
+    "      Named versions (/v3/openapi.yaml, /v4/spec.json) ALWAYS beat date-based ones\n" +
+    "      (/2024-01/openapi.yaml). Use date-based only when no named versions exist.\n" +
+    "      Among the winning type, pick the highest/most-recent stable entry.\n" +
     "  - If there is a changelog or release-notes link on the page, fetch it to confirm\n" +
     "    which version is the current stable release before choosing a URL\n" +
     "  - NEVER return a URL that contains: alpha, beta, rc, preview, dev, snapshot,\n" +
@@ -534,8 +543,18 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "       - Versioned branches (release/v2, v3-stable)\n" +
     "       - GitHub Releases/tags (fetch https://api.github.com/repos/OWNER/REPO/releases\n" +
     "         or /tags to see published versions)\n" +
-    "  b. Once you understand the versioning pattern, identify the LATEST STABLE version:\n" +
-    "       - For folder-per-version repos: pick the folder with the highest version number\n" +
+    "  b. Once you understand the versioning pattern, identify the LATEST STABLE version.\n" +
+    "     VERSION PRIORITY — apply in this order for every source:\n" +
+    "       1. Named semantic version folders/files (v3, v4, v2, etc.):\n" +
+    "          ALWAYS prefer these. Pick the highest number.\n" +
+    "       2. Date-based folders/files (2024-01, 20240101, 2023-10, etc.):\n" +
+    "          Use ONLY when no named-version siblings exist. Dates can represent\n" +
+    "          prereleases, snapshots, or rolling work-in-progress cuts.\n" +
+    "       3. If BOTH types are present in the same folder/repo, the named version\n" +
+    "          ALWAYS wins regardless of which date is more recent.\n" +
+    "     Apply this to specific repo layouts:\n" +
+    "       - For folder-per-version repos: pick the highest named-version folder\n" +
+    "         first; fall back to the latest date folder only if no named ones exist\n" +
     "       - For release/tag-based repos: fetch /releases and pick the latest non-prerelease\n" +
     "         (prerelease: false in the GitHub API response) or the highest semver tag\n" +
     "         that does NOT contain: alpha, beta, rc, preview, dev, snapshot, canary, next\n" +
@@ -583,12 +602,16 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "  3. A version is stable if it does NOT carry any of these labels:\n" +
     "       alpha, beta, rc, preview, dev, snapshot, canary, nightly,\n" +
     "       staging, draft, wip, experimental, pre-release, next, edge\n" +
-    "  4. For GitHub repos use /releases (prefer prerelease:false) or /tags\n" +
-    "     to find the latest stable tag; \n" +
-    "     when the repo uses explicit release tags\n" +
-    "  5. For versioned-folder repos, pick the numerically/chronologically highest\n" +
-    "     folder name that does not contain a prerelease label\n" +
-    "  6. The returned URL must resolve to the spec at that stable version —\n" +
+    "  4. VERSION TYPE PRIORITY — when comparing candidates across version types:\n" +
+    "       a. Named semantic versions (v3, v4, v2 …) ALWAYS beat date-based ones\n" +
+    "          (2024-01, 20240101 …). Dates can be prereleases or unstable snapshots.\n" +
+    "       b. Use date-based versions ONLY if no named-version folders/files exist.\n" +
+    "       c. When only date-based versions exist, pick the most recent stable date.\n" +
+    "  5. For GitHub repos use /releases (prefer prerelease:false) or /tags\n" +
+    "     to find the latest stable tag when the repo uses explicit release tags\n" +
+    "  6. For versioned-folder repos, apply rule 4 first (named > date), then\n" +
+    "     pick the highest within the winning type\n" +
+    "  7. The returned URL must resolve to the spec at that stable version —\n" +
     "     never return a URL that might point to work-in-progress content\n" +
     "\n" +
     "## File selection preferences\n" +
