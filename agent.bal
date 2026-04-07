@@ -379,6 +379,10 @@ function httpGetBody(string url) returns string|error {
 // Plain HTTP fetch. maxBytes controls how much of the response body we keep.
 // Using 500KB instead of the old 150KB to avoid cutting off content in long pages.
 function httpGetBodyPlain(string url, map<string|string[]> headers, int maxBytes) returns string|error {
+    return httpGetBodyPlainInner(url, headers, maxBytes);
+}
+
+function httpGetBodyPlainInner(string url, map<string|string[]> headers, int maxBytes) returns string|error {
     http:Client cl = check new (url, {
         followRedirects: {enabled: true, maxCount: 5},
         timeout: 12,
@@ -390,30 +394,6 @@ function httpGetBodyPlain(string url, map<string|string[]> headers, int maxBytes
     }
     string body = check resp.getTextPayload();
     return body.length() > maxBytes ? body.substring(0, maxBytes) : body;
-}
-
-function headOk(string url) returns boolean {
-    do {
-        string ghToken = os:getEnv("GITHUB_TOKEN");
-        map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
-        if url.includes("api.github.com") && ghToken.length() > 0 {
-            headers["Authorization"] = string `Bearer ${ghToken}`;
-        }
-        http:Client cl = check new (url, {
-            followRedirects: {enabled: true, maxCount: 5},
-            timeout: 10,
-            secureSocket: {enable: true}
-        });
-        http:Response r = check cl->head("", headers);
-        if r.statusCode == 200 { return true; }
-        if r.statusCode == 405 || r.statusCode == 501 {
-            http:Response r2 = check cl->get("", headers);
-            return r2.statusCode == 200;
-        }
-        return false;
-    } on fail {
-        return false;
-    }
 }
 
 // ─── HTML link extraction ─────────────────────────────────────────────────────

@@ -891,6 +891,25 @@ isolated function looksLikeSpec(string content) returns boolean {
 
 // ─── Shared HTTP helpers ──────────────────────────────────────────────────────
 
+function headOk(string url) returns boolean {
+    do {
+        string ghToken = os:getEnv("GITHUB_TOKEN");
+        map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
+        if url.includes("api.github.com") && ghToken.length() > 0 {
+            headers["Authorization"] = string `Bearer ${ghToken}`;
+        }
+        http:Client cl = check new (url, {
+            followRedirects: {enabled: true, maxCount: 5},
+            timeout: 10,
+            secureSocket: {enable: true}
+        });
+        http:Response r = check cl->head("", headers);
+        return r.statusCode == 200;
+    } on fail {
+        return false;
+    }
+}
+
 function httpGetBodyPartial(string url, int maxBytes) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
     map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
