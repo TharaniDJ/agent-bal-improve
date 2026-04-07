@@ -343,7 +343,7 @@ function httpGetBody(string url) returns string|error {
     //
     // The 500KB cap is important: some pages (like Mailchimp) embed the spec
     // version link deep in the body, after hundreds of KB of endpoint docs.
-    string|error plainResult = httpGetBodyPlain(url, headers, 500000);
+    string|error plainResult = httpGetBodyPlain(url, headers, 100000);
 
     if plainResult is string {
         string textContent = htmlText(plainResult);

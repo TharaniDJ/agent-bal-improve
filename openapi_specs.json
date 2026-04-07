@@ -139,8 +139,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-07T16:37:54.279164Z",
-        "elapsedSeconds": 61.7
+        "checkedAt": "2026-04-07T17:21:18.836025Z",
+        "elapsedSeconds": 35.9
     },
     {
         "name": "GitHub",
@@ -152,8 +152,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-07T16:37:52.300197Z",
-        "elapsedSeconds": 58.1
+        "checkedAt": "2026-04-07T17:21:35.512202Z",
+        "elapsedSeconds": 51.2
     },
     {
         "name": "DocuSign Admin API",
@@ -165,8 +165,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-07T16:37:28.305839Z",
-        "elapsedSeconds": 34.0
+        "checkedAt": "2026-04-07T17:21:00.002123Z",
+        "elapsedSeconds": 15.7
     },
     {
         "name": "DocuSign Click API",
@@ -178,8 +178,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-07T16:37:26.081222Z",
-        "elapsedSeconds": 31.8
+        "checkedAt": "2026-04-07T17:20:58.109196Z",
+        "elapsedSeconds": 13.8
     },
     {
         "name": "DocuSign eSign API",
@@ -191,8 +191,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-07T16:37:56.642429Z",
-        "elapsedSeconds": 62.3
+        "checkedAt": "2026-04-07T17:21:15.513129Z",
+        "elapsedSeconds": 31.2
     },
     {
         "name": "Candid CharityCheckPdf",
@@ -204,8 +204,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-07T16:40:36.333797Z",
-        "elapsedSeconds": 159.7
+        "checkedAt": "2026-04-07T17:21:53.162520Z",
+        "elapsedSeconds": 17.6
     },
     {
         "name": "Candid Essentials",
@@ -217,8 +217,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-07T16:40:16.151680Z",
-        "elapsedSeconds": 139.5
+        "checkedAt": "2026-04-07T17:21:56.903449Z",
+        "elapsedSeconds": 21.4
     },
     {
         "name": "Candid Premier",
@@ -230,8 +230,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-07T16:40:42.764277Z",
-        "elapsedSeconds": 166.1
+        "checkedAt": "2026-04-07T17:21:56.899650Z",
+        "elapsedSeconds": 21.4
     },
     {
         "name": "Discord",
@@ -243,7 +243,7 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-07T16:40:32.196480Z",
-        "elapsedSeconds": 155.5
+        "checkedAt": "2026-04-07T17:21:50.178799Z",
+        "elapsedSeconds": 14.6
     }
 ]
