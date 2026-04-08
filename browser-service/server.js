@@ -20,6 +20,29 @@ const { chromium } = require("playwright");
 const app = express();
 const PORT = 3456;
 
+// Maximum simultaneous Playwright pages. Keeping this low avoids memory
+// pressure and tab contention when many connectors run in the same batch.
+const MAX_CONCURRENT_PAGES = 3;
+let activePages = 0;
+const waitQueue = [];
+
+function acquirePage() {
+  if (activePages < MAX_CONCURRENT_PAGES) {
+    activePages++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => waitQueue.push(resolve));
+}
+
+function releasePage() {
+  activePages--;
+  if (waitQueue.length > 0) {
+    const next = waitQueue.shift();
+    activePages++;
+    next();
+  }
+}
+
 let browser = null;
 
 // Launch browser once on startup
@@ -46,10 +69,14 @@ app.get("/fetch", async (req, res) => {
 
   console.log(`[browser-fetch] ${url}`);
 
+  // Wait for a slot before opening a new page
+  await acquirePage();
+
+  let context = null;
   let page = null;
   try {
     const b = await getBrowser();
-    const context = await b.newContext({
+    context = await b.newContext({
       userAgent:
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       extraHTTPHeaders: {
@@ -61,28 +88,40 @@ app.get("/fetch", async (req, res) => {
 
     page = await context.newPage();
 
-    // Navigate and wait for network to settle
-    await page.goto(url, {
-      waitUntil: "networkidle",
-      timeout: 30000,
-    });
+    // Use "load" (fires after scripts/images) instead of "networkidle".
+    // Heavy SPAs (Stripe, Slack, HubSpot) never reach networkidle because
+    // they fire continuous background XHR — that caused the 30s timeouts.
+    // On timeout we fall through and grab whatever the page has rendered so
+    // far, which is almost always enough to find spec links.
+    try {
+      await page.goto(url, {
+        waitUntil: "load",
+        timeout: 20000,
+      });
+    } catch (navErr) {
+      // Navigation timed out or failed — use partial content rather than
+      // returning an error. React/Vue apps often have all their DOM in place
+      // before "load" fires, so this still gives us useful HTML.
+      console.log(`[browser-fetch] navigation timeout — using partial content for ${url}`);
+    }
 
-    // Extra wait for JS-heavy pages to finish rendering
-    await page.waitForTimeout(2000);
+    // Short extra wait for React/Vue hydration to inject links into the DOM
+    await page.waitForTimeout(1500);
 
     const html = await page.content();
     await context.close();
+    context = null;
 
     console.log(`[browser-fetch] OK — ${html.length} bytes`);
     res.json({ html });
   } catch (err) {
     console.error(`[browser-fetch] ERROR: ${err.message}`);
-    if (page) {
-      try {
-        await page.close();
-      } catch (_) {}
+    if (context) {
+      try { await context.close(); } catch (_) {}
     }
     res.status(500).json({ error: err.message });
+  } finally {
+    releasePage();
   }
 });
 
