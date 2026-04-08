@@ -1,11 +1,14 @@
 // connectors.bal
 
 public final Connector[] & readonly ALL_CONNECTORS = [
-    {name: "HubSpot CRM Contacts",                    docsUrl: "https://developers.hubspot.com/docs/api/crm/contacts",                            targetTitle: ()},
-    {name: "HubSpot CRM Companies",                   docsUrl: "https://developers.hubspot.com/docs/api/crm/companies",                           targetTitle: ()},
-    {name: "HubSpot CRM Deals",                       docsUrl: "https://developers.hubspot.com/docs/api/crm/deals",                               targetTitle: ()},
-    {name: "HubSpot CRM Associations",                docsUrl: "https://developers.hubspot.com/docs/api/crm/associations",                        targetTitle: ()},
-    {name: "HubSpot CRM Associations Schema",         docsUrl: "https://developers.hubspot.com/docs/api/crm/associations",                        targetTitle: ()},
-    {name: "HubSpot CRM Owners",                      docsUrl: "https://developers.hubspot.com/docs/api/crm/owners",                              targetTitle: ()},
-    {name: "HubSpot CRM Pipelines",                   docsUrl: "https://developers.hubspot.com/docs/api/crm/pipelines",                           targetTitle: ()}
+    {name: "SCIM",          docsUrl: "https://wso2.com/asgardeo/docs/apis/scim2/",                                          targetTitle: ()},
+    {name: "Slack",         docsUrl: "https://api.slack.com/methods",                                                       targetTitle: ()},
+    {name: "Smartsheet",    docsUrl: "https://developers.smartsheet.com/api/smartsheet/openapi",                       targetTitle: ()},
+    {name: "Stripe",        docsUrl: "https://docs.stripe.com/api",                                                         targetTitle: ()},
+    {name: "Trello",        docsUrl: "https://developer.atlassian.com/cloud/trello/rest/",                                  targetTitle: ()},
+    {name: "Twilio",        docsUrl: "https://www.twilio.com/docs/usage/api",                                               targetTitle: ()},
+    {name: "Twitter",       docsUrl: "https://developer.x.com/en/docs/x-api",                                               targetTitle: ()},
+    {name: "Zendesk",       docsUrl: "https://developer.zendesk.com/api-reference/",                                        targetTitle: ()},
+    {name: "Zoom Meetings", docsUrl: "https://developers.zoom.us/docs/api/meetings/",                                       targetTitle: ()},
+    {name: "Zoom Scheduler",docsUrl: "https://developers.zoom.us/docs/api/rest/zoom-scheduler-api/",                       targetTitle: ()}
 ];

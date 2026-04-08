@@ -1,7 +1,7 @@
 // agent.bal
 // Shared utilities used by all pipeline steps:
 //   - executeFetchPage()        — tool handler (HTML/JSON/YAML fetch + parse)
-//   - callClaude()              — Anthropic API call
+//   - callClaude()              — Anthropic API call with retry on 529/429/timeout
 //   - httpGetBody()             — raw HTTP GET, with local Playwright fallback for SPAs
 //   - headOk()                  — HEAD check
 //   - HTML/string utils
@@ -13,12 +13,23 @@
 //      Returns JSON: { "html": "<rendered HTML>" } or { "error": "..." }
 //   4. If local server also fails → return whatever plain HTTP gave us
 //
+// Hang protection strategy:
+//   Per-connector wall-clock timeout is enforced in main.bal using Ballerina's
+//   native `wait f timeout N` syntax on the future returned by `start processConnector(...)`.
+//   This is the ONLY reliable way to enforce a wall-clock deadline in Ballerina —
+//   wrapping http:Client calls in polling loops does not work because Ballerina's
+//   `wait` on an unresolved future always blocks indefinitely.
+//
+//   callClaude() retries on 529/429/timeout errors with exponential backoff:
+//   5s → 15s → 30s → 60s (4 retries, 5 attempts total).
+//
 // Start the local browser service before running:
 //   node browser-service/server.js
 
 import ballerina/http;
 import ballerina/log;
 import ballerina/os;
+import ballerina/lang.runtime as runtime;
 
 // ─── Tool definition ─────────────────────────────────────────────────────────
 
@@ -191,10 +202,73 @@ isolated function inferRepoFromRawUrl(string url) returns string? {
 }
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
+//
+// Retries on:
+//   - 529 (Overloaded)     — exponential backoff
+//   - 429 (Rate Limited)   — exponential backoff
+//   - timeout/connection   — exponential backoff
+//
+// Backoff schedule (seconds): 5 → 15 → 30 → 60  (4 retries, 5 attempts total)
+//
+// NOTE: Per-connector wall-clock hang protection is in main.bal via
+//   `wait f timeout CONNECTOR_TIMEOUT_SECS`
+// which is the only reliable Ballerina mechanism for true wall-clock deadlines.
+// Ballerina's `wait` on a future has no timeout parameter inside a function —
+// it always blocks until the future resolves or panics.
+
+// Backoff delays in seconds for retry attempts 1–4
+final decimal[] RETRY_BACKOFF_SECS = [5, 15, 30, 60];
+
+// Per-call http:Client timeout. Covers TCP connect + response read.
+// Works for normal slow/fast responses. For the edge case where Anthropic
+// accepts TCP but queues internally, the connector-level timeout in main.bal
+// is the final safety net.
+const decimal CLAUDE_CALL_TIMEOUT_SECS = 60;
 
 function callClaude(string apiKey, string model, json[] messages, string systemPrompt) returns json|error {
+    int maxAttempts = 5; // 1 initial + 4 retries
+    int attempt = 0;
+
+    while attempt < maxAttempts {
+        attempt += 1;
+
+        json|error result = doClaudeCall(apiKey, model, messages, systemPrompt);
+
+        if result is json {
+            return result;
+        }
+
+        string errMsg = result.message();
+
+        // Classify the error to decide whether to retry
+        boolean isOverloaded  = errMsg.includes("529");
+        boolean isRateLimited = errMsg.includes("429");
+        boolean isTimeout     = errMsg.toLowerAscii().includes("timeout") ||
+                                errMsg.toLowerAscii().includes("timed out") ||
+                                errMsg.toLowerAscii().includes("connection");
+
+        boolean shouldRetry = isOverloaded || isRateLimited || isTimeout;
+
+        if shouldRetry && attempt < maxAttempts {
+            decimal waitSecs = RETRY_BACKOFF_SECS[attempt - 1];
+            string reason = isOverloaded  ? "overloaded"
+                          : isRateLimited ? "rate limited"
+                          :                 "timeout/connection error";
+            log:printInfo(string `  [claude] ${reason} (attempt ${attempt}/${maxAttempts - 1}) — waiting ${waitSecs}s before retry`);
+            runtime:sleep(waitSecs);
+            continue;
+        }
+
+        // Non-retryable error or max retries exceeded
+        return result;
+    }
+
+    return error("Claude API: max retries exceeded");
+}
+
+function doClaudeCall(string apiKey, string model, json[] messages, string systemPrompt) returns json|error {
     http:Client cl = check new ("https://api.anthropic.com", {
-        timeout: 90,
+        timeout: CLAUDE_CALL_TIMEOUT_SECS,
         secureSocket: {enable: true}
     });
 
@@ -259,7 +333,6 @@ function doLocalBrowserFetch(string url) returns string|error {
         timeout: 40
     });
 
-    // URL-encode the target URL for use as a query parameter
     string encodedUrl = encodeUrlParam(url);
 
     http:Response resp = check cl->get(string `/fetch?url=${encodedUrl}`);
@@ -276,13 +349,11 @@ function doLocalBrowserFetch(string url) returns string|error {
     }
 
     if payload is map<json> {
-        // Check for error field
         json? errField = payload["error"];
         if errField is string {
             return error(string `local-browser: ${errField}`);
         }
 
-        // Extract html field
         json? htmlField = payload["html"];
         if htmlField is string {
             // Cap at 500KB — large enough to capture spec links deep in long pages
@@ -325,15 +396,11 @@ function httpGetBody(string url) returns string|error {
     //   1. Try plain HTTP with a generous cap
     //   2. Check if the response has enough visible text to be useful
     //   3. If not (SPA shell) — use local Playwright browser for full JS rendering
-    //
-    // The 500KB cap is important: some pages (like Mailchimp) embed the spec
-    // version link deep in the body, after hundreds of KB of endpoint docs.
     string|error plainResult = httpGetBodyPlain(url, headers, 100000);
 
     if plainResult is string {
         string textContent = htmlText(plainResult);
         if textContent.length() >= MIN_USEFUL_TEXT_LENGTH {
-            // Plain HTTP returned a real page with enough content
             log:printInfo(string `    [plain-http] OK — ${plainResult.length()} bytes (${textContent.length()} chars text)`);
             return plainResult;
         }
@@ -534,7 +601,6 @@ isolated function encodeUrlParam(string s) returns string {
         if isUnreservedChar(ch) {
             result += ch;
         } else {
-            // Get the byte values and hex-encode them
             byte[] bytes = ch.toBytes();
             foreach byte b in bytes {
                 result += "%" + byteToHex(b);

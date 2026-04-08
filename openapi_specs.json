@@ -9,8 +9,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T08:36:27.615801Z",
-        "elapsedSeconds": 83.3
+        "checkedAt": "2026-04-08T08:43:20.025907Z",
+        "elapsedSeconds": 18.8
     },
     {
         "name": "HubSpot CRM Companies",
@@ -22,8 +22,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T08:36:07.946171Z",
-        "elapsedSeconds": 63.5
+        "checkedAt": "2026-04-08T08:43:21.018818Z",
+        "elapsedSeconds": 18.3
     },
     {
         "name": "HubSpot CRM Deals",
@@ -35,8 +35,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T08:36:14.059427Z",
-        "elapsedSeconds": 69.6
+        "checkedAt": "2026-04-08T08:43:21.319887Z",
+        "elapsedSeconds": 18.5
     },
     {
         "name": "HubSpot CRM Associations",
@@ -48,8 +48,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T08:36:24.418423Z",
-        "elapsedSeconds": 80.0
+        "checkedAt": "2026-04-08T08:43:32.794088Z",
+        "elapsedSeconds": 30.0
     },
     {
         "name": "HubSpot CRM Associations Schema",
@@ -61,8 +61,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T08:36:19.802994Z",
-        "elapsedSeconds": 75.3
+        "checkedAt": "2026-04-08T08:43:20.043926Z",
+        "elapsedSeconds": 17.2
     },
     {
         "name": "HubSpot CRM Owners",
@@ -74,8 +74,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T08:37:27.299201Z",
-        "elapsedSeconds": 59.7
+        "checkedAt": "2026-04-08T08:43:41.167768Z",
+        "elapsedSeconds": 8.4
     },
     {
         "name": "HubSpot CRM Pipelines",
@@ -87,7 +87,7 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T08:37:17.442176Z",
-        "elapsedSeconds": 49.8
+        "checkedAt": "2026-04-08T08:43:51.427950Z",
+        "elapsedSeconds": 18.6
     }
 ]

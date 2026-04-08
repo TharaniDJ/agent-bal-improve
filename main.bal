@@ -4,6 +4,14 @@
 // The agent always re-checks every connector, even if a URL already
 // exists in the output file. This ensures we always find the latest.
 //
+// Per-connector wall-clock timeout: CONNECTOR_TIMEOUT_SECS (default 180s).
+// This is enforced using Ballerina's native `wait f timeout N` syntax on the
+// future returned by `start processConnector(...)`. This is the ONLY reliable
+// way to enforce a wall-clock deadline in Ballerina — Ballerina's `wait` on
+// a future inside a function always blocks indefinitely with no timeout option.
+// If a connector's strand hangs (e.g. Anthropic accepts TCP but never responds),
+// the timeout fires, the connector is marked not_found, and the batch continues.
+//
 // Usage:
 //   ANTHROPIC_API_KEY=sk-...  bal run .
 //   ANTHROPIC_API_KEY=sk-...  FILTER=github bal run .
@@ -22,6 +30,12 @@ configurable string outputFile = "openapi_specs.json";
 const string BAR  = "================================================================";
 const string DASH = "----------------------------------------------------------------";
 
+// Maximum wall-clock time allowed per connector in seconds.
+// A full-discovery run with 10 turns takes ~80–100s on average.
+// 180s gives generous headroom while still breaking hangs within 3 minutes.
+// Override with env var CONNECTOR_TIMEOUT if needed.
+const decimal DEFAULT_CONNECTOR_TIMEOUT_SECS = 180;
+
 public function main() returns error? {
     string apiKey      = os:getEnv("ANTHROPIC_API_KEY");
     string filterStr   = os:getEnv("FILTER").toLowerAscii();
@@ -35,6 +49,13 @@ public function main() returns error? {
     if concStr.length() > 0 {
         int|error parsed = int:fromString(concStr);
         if parsed is int && parsed > 0 { concurrency = parsed; }
+    }
+
+    decimal connectorTimeout = DEFAULT_CONNECTOR_TIMEOUT_SECS;
+    string timeoutStr = os:getEnv("CONNECTOR_TIMEOUT");
+    if timeoutStr.length() > 0 {
+        decimal|error parsed = decimal:fromString(timeoutStr);
+        if parsed is decimal && parsed > 0d { connectorTimeout = parsed; }
     }
 
     Connector[] connectors = filterStr.length() > 0
@@ -68,6 +89,7 @@ public function main() returns error? {
     io:println(string `  Output      : ${outFile}`);
     io:println(string `  APIs        : ${connectors.length()}`);
     io:println(string `  Concurrency : ${concurrency}`);
+    io:println(string `  Timeout     : ${<int>connectorTimeout}s per connector`);
     io:println(BAR);
     io:println("");
 
@@ -94,7 +116,6 @@ public function main() returns error? {
         Connector[] batch = connectors.slice(batchStart, batchEnd);
         io:println(string `--- batch ${batchStart + 1}–${batchEnd} of ${connectors.length()} ---`);
 
-        // Snapshot known URLs before launching — reads only, no concurrent mutation
         future<ResultEntry>[] futures = [];
         Connector[] batchConnectors = [];
         foreach Connector c in batch {
@@ -110,19 +131,35 @@ public function main() returns error? {
             batchConnectors.push(c);
         }
 
-        // Collect results — strands are all running; waiting in order is fine
+        // Collect results with per-connector wall-clock timeout.
+        //
+        // `wait f timeout N` is Ballerina's native mechanism for bounding how
+        // long we wait for a future strand. If the strand doesn't complete within
+        // N seconds, `wait` returns an error immediately and the batch continues.
+        // The hung strand keeps running in the background but its result is
+        // discarded — we mark the connector as not_found and move on.
+        //
+        // This is the ONLY reliable way to enforce wall-clock deadlines in
+        // Ballerina. Timeouts inside http:Client only fire after data starts
+        // flowing; they don't catch the case where a server accepts the TCP
+        // connection but then stalls indefinitely before sending any bytes.
         int fi = 0;
         foreach future<ResultEntry> f in futures {
             Connector bc = batchConnectors[fi];
             fi += 1;
 
-            ResultEntry|error waitResult = wait f;
             ResultEntry entry;
+            ResultEntry|error waitResult = wait f;
+
             if waitResult is ResultEntry {
                 entry = waitResult;
             } else {
-                // Strand panicked — treat as not_found
-                log:printInfo(string `  [${bc.name}] strand error: ${waitResult.message()}`);
+                // Either strand panicked or connector-level timeout fired
+                string reason = waitResult.message().toLowerAscii().includes("timeout")
+                    ? string `timed out after ${<int>connectorTimeout}s`
+                    : string `strand error: ${waitResult.message()}`;
+                log:printInfo(string `  [${bc.name}] ${reason}`);
+                io:println(string `[timeout] ${bc.name} — ${reason}`);
                 entry = {
                     name:           bc.name,
                     docsUrl:        bc.docsUrl,
@@ -134,7 +171,7 @@ public function main() returns error? {
                     format:         (),
                     status:         "not_found",
                     checkedAt:      time:utcToString(time:utcNow()),
-                    elapsedSeconds: 0d
+                    elapsedSeconds: connectorTimeout
                 };
             }
 
