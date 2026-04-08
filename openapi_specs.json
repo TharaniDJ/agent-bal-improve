@@ -328,14 +328,14 @@
         "name": "HubSpot CRM Contacts",
         "docsUrl": "https://developers.hubspot.com/docs/api/crm/contacts",
         "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Contacts/Rollouts/424/v3/contacts.json",
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Contacts/Rollouts/107729/v3/contacts.json",
         "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
         "title": null,
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:25:31.998218Z",
-        "elapsedSeconds": 56.5
+        "checkedAt": "2026-04-08T03:28:27.185354Z",
+        "elapsedSeconds": 26.6
     },
     {
         "name": "HubSpot CRM Companies",
@@ -347,8 +347,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:25:26.576940Z",
-        "elapsedSeconds": 49.7
+        "checkedAt": "2026-04-08T03:28:15.115391Z",
+        "elapsedSeconds": 13.0
     },
     {
         "name": "HubSpot CRM Deals",
@@ -360,8 +360,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:25:27.411542Z",
-        "elapsedSeconds": 50.5
+        "checkedAt": "2026-04-08T03:28:11.077953Z",
+        "elapsedSeconds": 8.9
     },
     {
         "name": "HubSpot CRM Associations",
@@ -373,8 +373,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:25:27.777346Z",
-        "elapsedSeconds": 50.9
+        "checkedAt": "2026-04-08T03:28:16.208904Z",
+        "elapsedSeconds": 14.0
     },
     {
         "name": "HubSpot CRM Associations Schema",
@@ -386,8 +386,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:25:32.002581Z",
-        "elapsedSeconds": 55.1
+        "checkedAt": "2026-04-08T03:28:14.397888Z",
+        "elapsedSeconds": 12.2
     },
     {
         "name": "HubSpot CRM Owners",
@@ -399,8 +399,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:26:13.123795Z",
-        "elapsedSeconds": 41.1
+        "checkedAt": "2026-04-08T03:28:34.869205Z",
+        "elapsedSeconds": 7.7
     },
     {
         "name": "HubSpot CRM Pipelines",
@@ -412,7 +412,7 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:26:14.646036Z",
-        "elapsedSeconds": 42.6
+        "checkedAt": "2026-04-08T03:28:40.840023Z",
+        "elapsedSeconds": 13.6
     }
 ]
