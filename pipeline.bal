@@ -7,24 +7,13 @@
 // Step 4: stepContentVerify       — pure HTTP, confirm discovered candidates
 //
 // SPA handling is transparent: httpGetBody() in agent.bal detects thin HTML
-// responses and retries via the headless browser service automatically.
+// responses and retries via the Browserless cloud API automatically.
 
 import ballerina/http;
 import ballerina/log;
 import ballerina/os;
 
 // ─── STEP 1: Quick Verify (stable/direct URLs only) ──────────────────────────
-// Only for non-GitHub direct endpoints like:
-//   developer.candid.org/openapi/...
-//   www.elastic.co/docs/api/...
-//   api.mailchimp.com/schema/...
-//   app.stainless.com/api/spec/...
-//   developers.smartsheet.com/...
-//   dac-static.atlassian.com/...
-//
-// These are CDN/API endpoints that always serve the current version.
-// A HEAD check + content sniff is sufficient — no sibling checking needed.
-// Returns the existing SpecResult if valid, null if we need further checking.
 
 public function stepQuickVerify(
     string? knownSpecUrl,
@@ -38,26 +27,16 @@ public function stepQuickVerify(
         return ();
     }
 
-    // GitHub-hosted URLs need version-sibling checking — handled by step 2
     if knownSpecUrl.includes("raw.githubusercontent.com") {
         log:printInfo("  [step1] GitHub URL — skipping to version check");
         return ();
     }
 
-    // Non-GitHub stable endpoints: use LLM to validate AND check for a newer version
     log:printInfo(string `  [step1] stable endpoint — LLM version check: ${knownSpecUrl}`);
     return stepStableVersionCheck(knownSpecUrl, docsUrl, knownSpecRepo, anthropicKey);
 }
 
 // ─── STEP 1b: Stable Version Check (LLM-assisted) ────────────────────────────
-// For non-GitHub stable endpoints (CDN, API gateway, developer portals).
-// Claude fetches the docs page to determine whether the known URL is still the
-// latest stable version, and returns the best URL it finds.
-//
-// Returns:
-//   SpecResult  → valid URL (same or newer)
-//   "DEAD"      → known URL is gone or no longer a spec
-//   ()          → agent error/timeout
 
 const string STABLE_CHECK_SYSTEM_PROMPT =
     "You are verifying whether a known OpenAPI/Swagger spec URL is still the LATEST STABLE version.\n" +
@@ -256,7 +235,6 @@ function parseStableCheckResult(string text, string fallbackUrl, string? fallbac
         else if t.startsWith("REPO:") { repo = t.substring(5).trim(); }
     }
 
-    // Fall back to the known URL if Claude returned nothing parseable
     if url.length() == 0 { url = fallbackUrl; }
 
     if !headOk(url) {
@@ -276,14 +254,6 @@ function parseStableCheckResult(string text, string fallbackUrl, string? fallbac
 }
 
 // ─── STEP 2: GitHub Version Check ────────────────────────────────────────────
-// For GitHub-hosted specs with a known URL.
-// Fetches the known URL to confirm it is still valid, then checks the parent
-// folder for newer siblings.
-//
-// Returns:
-//   SpecResult  → valid URL (same or newer)
-//   "DEAD"      → known URL is gone, need full re-discovery
-//   ()          → agent error/timeout
 
 const string GITHUB_CHECK_SYSTEM_PROMPT =
     "You are checking whether a GitHub-hosted OpenAPI spec URL is still the LATEST version.\n" +
@@ -481,8 +451,6 @@ function parseGithubCheckResult(string text, string? fallbackRepo) returns SpecR
 }
 
 // ─── STEP 3: Discovery Agent ──────────────────────────────────────────────────
-// Always fetches the docs URL first (SPA detection is handled transparently
-// by httpGetBody in agent.bal). GitHub search and APIs-guru are fallbacks only.
 
 const string DISCOVERY_SYSTEM_PROMPT =
     "You are an expert at finding publicly available latest updated OpenAPI/Swagger specification files.\n" +
@@ -788,7 +756,6 @@ function parseDiscoveryResult(string text) returns DiscoveryResult {
             if u.startsWith("http") && !seen.hasKey(u) {
                 seen[u] = true;
                 urls.push(u);
-                // Add alternate branch variant for raw GitHub URLs
                 if u.includes("raw.githubusercontent.com/") {
                     string alt = "";
                     if u.includes("/main/") {
@@ -812,8 +779,10 @@ function parseDiscoveryResult(string text) returns DiscoveryResult {
 // Pure HTTP — no Claude needed.
 // Confirms each candidate URL actually contains a valid spec.
 //
-// NOTE: Fetches 100KB to handle large specs like Stripe (~14MB) where
-// the `openapi:` field appears deep in the file, not at the start.
+// For very large files (Content-Length > 5MB from HEAD response), we skip
+// the content download and trust the HEAD check — these are known-large specs
+// like Microsoft Graph (~300MB) or Stripe (~14MB) where downloading even
+// 100KB can hang due to slow initial connection on oversized files.
 
 public function stepContentVerify(
     DiscoveryResult discovery
@@ -829,13 +798,30 @@ public function stepContentVerify(
     foreach string url in discovery.candidateUrls {
         log:printInfo(string `  [step4 check] ${url}`);
 
+        // HEAD check first — fast, no body download
         if !headOk(url) {
             log:printInfo("  [step4] HEAD failed — skipping");
             continue;
         }
 
-        // Fetch 100KB — needed for large specs (e.g. Stripe) where openapi:
-        // field is not in the first few KB due to alphabetical YAML ordering
+        // Check Content-Length from HEAD to detect very large files.
+        // For files > 5MB, skip content fetch and trust HEAD — downloading
+        // even a small slice of a 300MB file (e.g. Microsoft Graph) can hang.
+        int contentLength = getContentLength(url);
+        if contentLength > 5000000 {
+            log:printInfo(string `  [step4] large file (${contentLength} bytes) — skipping content fetch, trusting HEAD`);
+            string fmt = url.toLowerAscii().endsWith(".json") ? "json" : "yaml";
+            log:printInfo(string `  [step4] assumed valid (large known spec): ${url}`);
+            return {
+                specUrl: url,
+                specRepo: discovery.specRepo,
+                title: (),
+                apiVersion: (),
+                format: fmt
+            };
+        }
+
+        // For normal-sized files, fetch 100KB and verify content
         string|error body = httpGetBodyPartial(url, 100000);
         if body is error {
             log:printInfo("  [step4] content fetch failed — skipping");
@@ -862,28 +848,42 @@ public function stepContentVerify(
     return ();
 }
 
+// Returns the Content-Length of a URL from a HEAD request, or 0 if unavailable.
+function getContentLength(string url) returns int {
+    do {
+        string ghToken = os:getEnv("GITHUB_TOKEN");
+        map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
+        if url.includes("api.github.com") && ghToken.length() > 0 {
+            headers["Authorization"] = string `Bearer ${ghToken}`;
+        }
+        http:Client cl = check new (url, {
+            followRedirects: {enabled: true, maxCount: 5},
+            timeout: 10,
+            secureSocket: {enable: true}
+        });
+        http:Response r = check cl->head("", headers);
+        if r.statusCode == 200 {
+            string clHeader = check r.getHeader("content-length");
+            int|error parsed = int:fromString(clHeader);
+            if parsed is int { return parsed; }
+        }
+    } on fail {
+        // Content-Length not available — return 0 (proceed with content fetch)
+    }
+    return 0;
+}
+
 // ─── Spec content detection ───────────────────────────────────────────────────
-// Checks whether a string looks like an OpenAPI/Swagger spec.
-// Handles large specs where openapi: field is not at the very start.
 
 isolated function looksLikeSpec(string content) returns boolean {
     string t = content.trim();
-    // Standard YAML starts
     if t.startsWith("openapi:") { return true; }
     if t.startsWith("swagger:") { return true; }
-    // JSON format — "openapi" or "swagger" key anywhere in the fetched window
     if t.includes("\"openapi\"") { return true; }
     if t.includes("\"swagger\"") { return true; }
-    // YAML field not at root (e.g. Stripe spec starts with components:)
     if t.includes("\nopenapi:") { return true; }
     if t.includes("\nswagger:") { return true; }
-    // Large alphabetically-ordered YAML specs (e.g. Stripe) start with components:
-    // and openapi: is too deep to appear within the first 100KB fetch window.
-    // components: is an OpenAPI 3.x-specific top-level keyword — safe heuristic.
     if t.startsWith("components:") { return true; }
-    // Large alphabetically-ordered JSON specs (e.g. Jira ~14MB) start with
-    // {"components":...} — the "openapi" key is far beyond the 100KB fetch window.
-    // Check the first 300 chars to confirm "components" is a root-level key.
     string head = t.length() > 300 ? t.substring(0, 300) : t;
     if t.startsWith("{") && head.includes("\"components\"") { return true; }
     return false;
@@ -898,7 +898,6 @@ function httpGetBodyPartial(string url, int maxBytes) returns string|error {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
-    // Raw content files get 20s, docs pages get 8s
     decimal timeoutSecs = isRawContentUrl(url) ? 20 : 8;
 
     http:Client cl = check new (url, {

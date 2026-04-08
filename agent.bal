@@ -1,10 +1,20 @@
 // agent.bal
 // Shared utilities used by all pipeline steps:
-//   - executeFetchPage()  — tool handler (HTML/JSON/YAML fetch + parse)
-//   - callClaude()        — Anthropic API call
-//   - httpGetBody()       — raw HTTP GET, with dynamic SPA detection + browser fallback
-//   - headOk()            — HEAD check
+//   - executeFetchPage()        — tool handler (HTML/JSON/YAML fetch + parse)
+//   - callClaude()              — Anthropic API call
+//   - httpGetBody()             — raw HTTP GET, with local Playwright fallback for SPAs
+//   - headOk()                  — HEAD check
 //   - HTML/string utils
+//
+// Fetching strategy for HTML docs pages:
+//   1. Try plain HTTP first (fast, no cost, works for static sites)
+//   2. If result has < 500 chars of visible text → SPA detected → use local Playwright server
+//   3. Local Playwright server: GET http://localhost:3456/fetch?url=<url>
+//      Returns JSON: { "html": "<rendered HTML>" } or { "error": "..." }
+//   4. If local server also fails → return whatever plain HTTP gave us
+//
+// Start the local browser service before running:
+//   node browser-service/server.js
 
 import ballerina/http;
 import ballerina/log;
@@ -30,11 +40,6 @@ final json FETCH_PAGE_TOOL = {
     }
 };
 
-// ─── Browser service port ─────────────────────────────────────────────────────
-// The headless browser sidecar (browser-service/server.js) runs on this port.
-// Start it with: node browser-service/server.js
-const int BROWSER_SERVICE_PORT = 3456;
-
 // ─── fetch_page tool handler ──────────────────────────────────────────────────
 
 const string EMPTY_HTML_RESULT = "{\"type\":\"html\",\"spec_links\":[],\"page_text\":\"\",\"other_links\":[]}";
@@ -46,9 +51,6 @@ function executeFetchPage(string url) returns string {
         string|error body = httpGetBody(url);
         if body is error {
             log:printInfo(string `      error: ${body.message()}`);
-            // For HTML docs pages return an empty-but-valid HTML result so Claude can
-            // continue reasoning (fall back to GitHub). For spec/API files return the
-            // error so Claude knows the URL is unreachable.
             if !isRawContentUrl(url) {
                 return EMPTY_HTML_RESULT;
             }
@@ -63,9 +65,11 @@ function executeFetchPage(string url) returns string {
             return string `{"type":"yaml","content":${jsonStr(snippet)}}`;
         }
 
-        // JSON / GitHub API
+        // JSON / GitHub API — use 100KB cap for GitHub Contents API directory listings
+        // (12KB truncates large folders like HubSpot CRM which has 50+ entries)
         if lo.endsWith(".json") || lo.includes("api.github.com") || lo.includes("application/json") {
-            string snippet = body.length() > 12000 ? body.substring(0, 12000) : body;
+            int jsonCap = lo.includes("api.github.com") ? 100000 : 12000;
+            string snippet = body.length() > jsonCap ? body.substring(0, jsonCap) : body;
             return string `{"type":"json","content":${jsonStr(snippet)}}`;
         }
 
@@ -99,8 +103,6 @@ function executeFetchPage(string url) returns string {
 
         return string `{"type":"html","spec_links":${jsonArr(specLinks)},"page_text":${jsonStr(txtSnippet)},"other_links":${jsonArr(otherLinks.slice(0, otherCap))}}`;
     } on fail error e {
-        // Safety net: unexpected error during fetch or HTML parsing.
-        // Always return valid JSON so Claude is never left waiting.
         log:printInfo(string `      [fetch] unexpected error: ${e.message()}`);
         return EMPTY_HTML_RESULT;
     }
@@ -231,45 +233,72 @@ isolated function isRawContentUrl(string url) returns boolean {
     return false;
 }
 
-// Checks if the headless browser service is running on localhost.
-isolated function isBrowserServiceAvailable() returns boolean {
-    do {
-        http:Client cl = check new (string `http://localhost:${BROWSER_SERVICE_PORT}`, {timeout: 2});
-        http:Response r = check cl->get("/health");
-        return r.statusCode == 200;
-    } on fail {
-        return false;
+// Fetches a URL via the local Playwright browser service.
+// The service renders the page in a headless Chromium instance — handles JS/SPAs,
+// returns fully-rendered HTML including dynamically injected content and links.
+//
+// Service endpoint: GET http://localhost:3456/fetch?url=<encoded-url>
+// Response JSON:    { "html": "<rendered HTML>" }  or  { "error": "..." }
+//
+// Start the service before running the agent:
+//   node browser-service/server.js
+function httpGetBodyViaLocalBrowser(string url) returns string|error {
+    log:printInfo(string `    [local-browser] ${url}`);
+
+    string|error result = doLocalBrowserFetch(url);
+    if result is string {
+        return result;
     }
+
+    log:printInfo(string `    [local-browser] failed: ${result.message()}`);
+    return result;
 }
 
-// Fetches a SPA URL via the headless browser service.
-// Returns the rendered HTML, or an error if the service is unavailable or slow.
-// Timeout is intentionally short — fail fast rather than block the pipeline.
-function httpGetBodyViaBrowser(string url) returns string|error {
-    log:printInfo(string `    [browser-fetch] ${url}`);
-    http:Client cl = check new (string `http://localhost:${BROWSER_SERVICE_PORT}`, {timeout: 20});
-    http:Response resp = check cl->get(string `/fetch?url=${url}`);
+function doLocalBrowserFetch(string url) returns string|error {
+    http:Client cl = check new ("http://localhost:3456", {
+        timeout: 40
+    });
+
+    // URL-encode the target URL for use as a query parameter
+    string encodedUrl = encodeUrlParam(url);
+
+    http:Response resp = check cl->get(string `/fetch?url=${encodedUrl}`);
+
     if resp.statusCode != 200 {
         string errBody = check resp.getTextPayload();
-        return error(string `Browser service error ${resp.statusCode}: ${errBody}`);
+        int cap = errBody.length() > 200 ? 200 : errBody.length();
+        return error(string `local-browser ${resp.statusCode}: ${errBody.substring(0, cap)}`);
     }
-    json respJson = check resp.getJsonPayload();
-    if respJson is map<json> {
-        json? htmlVal = respJson["html"];
-        if htmlVal is string {
-            // Cap at 50KB — enough to find Download OpenAPI links, avoids Claude context overflow
-            string capped = htmlVal.length() > 50000 ? htmlVal.substring(0, 50000) : htmlVal;
-            log:printInfo(string `    [browser-fetch] OK — ${htmlVal.length()} bytes (capped to ${capped.length()})`);
+
+    json|error payload = resp.getJsonPayload();
+    if payload is error {
+        return error(string `local-browser: invalid JSON response — ${payload.message()}`);
+    }
+
+    if payload is map<json> {
+        // Check for error field
+        json? errField = payload["error"];
+        if errField is string {
+            return error(string `local-browser: ${errField}`);
+        }
+
+        // Extract html field
+        json? htmlField = payload["html"];
+        if htmlField is string {
+            // Cap at 500KB — large enough to capture spec links deep in long pages
+            string capped = htmlField.length() > 500000 ? htmlField.substring(0, 500000) : htmlField;
+            log:printInfo(string `    [local-browser] OK — ${htmlField.length()} bytes (capped to ${capped.length()})`);
             return capped;
         }
-        json? errVal = respJson["error"];
-        if errVal is string {
-            return error(string `Browser service: ${errVal}`);
-        }
     }
-    return error("Browser service returned unexpected response");
+
+    return error("local-browser: response missing 'html' field");
 }
 
+// Minimum visible text length to consider a plain-HTTP response "useful".
+// Pages below this threshold are treated as SPA shells and retried via local browser.
+// 500 chars is enough to detect a real page vs an empty React/Vue container.
+const int MIN_USEFUL_TEXT_LENGTH = 500;
 
 function httpGetBody(string url) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
@@ -292,19 +321,46 @@ function httpGetBody(string url) returns string|error {
         return check resp.getTextPayload();
     }
 
-    // HTML docs pages always go through the headless browser service.
-    // This handles SPAs, JS-rendered pages, and any site that blocks plain HTTP —
-    // without needing to know in advance which domains require it.
-    if isBrowserServiceAvailable() {
-        return httpGetBodyViaBrowser(url);
+    // HTML docs pages strategy:
+    //   1. Try plain HTTP with a generous cap
+    //   2. Check if the response has enough visible text to be useful
+    //   3. If not (SPA shell) — use local Playwright browser for full JS rendering
+    //
+    // The 500KB cap is important: some pages (like Mailchimp) embed the spec
+    // version link deep in the body, after hundreds of KB of endpoint docs.
+    string|error plainResult = httpGetBodyPlain(url, headers, 100000);
+
+    if plainResult is string {
+        string textContent = htmlText(plainResult);
+        if textContent.length() >= MIN_USEFUL_TEXT_LENGTH {
+            // Plain HTTP returned a real page with enough content
+            log:printInfo(string `    [plain-http] OK — ${plainResult.length()} bytes (${textContent.length()} chars text)`);
+            return plainResult;
+        }
+        log:printInfo(string `    [plain-http] SPA detected (only ${textContent.length()} chars text) — trying local browser`);
+    } else {
+        log:printInfo(string `    [plain-http] failed: ${plainResult.message()} — trying local browser`);
     }
 
-    // Browser service not running — fall back to plain HTTP with a short timeout.
-    log:printInfo(string `    [browser-warn] browser service not running — plain HTTP fallback for ${url}`);
-    log:printInfo("    [browser-warn] Start with: node browser-service/server.js");
+    // Use local Playwright browser for full JS rendering
+    string|error browserResult = httpGetBodyViaLocalBrowser(url);
+    if browserResult is string {
+        return browserResult;
+    }
+    log:printInfo(string `    [local-browser] also failed: ${browserResult.message()} — using plain HTTP fallback`);
+
+    // Last resort: return whatever plain HTTP gave us
+    if plainResult is string {
+        return plainResult;
+    }
+    return plainResult;
+}
+
+// Plain HTTP fetch. maxBytes controls how much of the response body we keep.
+function httpGetBodyPlain(string url, map<string|string[]> headers, int maxBytes) returns string|error {
     http:Client cl = check new (url, {
         followRedirects: {enabled: true, maxCount: 5},
-        timeout: 8,
+        timeout: 12,
         secureSocket: {enable: true}
     });
     http:Response resp = check cl->get("", headers);
@@ -312,10 +368,7 @@ function httpGetBody(string url) returns string|error {
         return error(string `HTTP ${resp.statusCode}`);
     }
     string body = check resp.getTextPayload();
-    if body.length() > 150000 {
-        return body.substring(0, 150000);
-    }
-    return body;
+    return body.length() > maxBytes ? body.substring(0, maxBytes) : body;
 }
 
 function headOk(string url) returns boolean {
@@ -469,4 +522,39 @@ isolated function jsonArr(string[] items) returns string {
         first = false;
     }
     return r + "]";
+}
+
+// ─── URL encoding ─────────────────────────────────────────────────────────────
+
+// Percent-encodes a string for safe use as a URL query parameter value.
+// Encodes all characters except unreserved ones: A-Z a-z 0-9 - _ . ~
+isolated function encodeUrlParam(string s) returns string {
+    string result = "";
+    foreach string ch in s {
+        if isUnreservedChar(ch) {
+            result += ch;
+        } else {
+            // Get the byte values and hex-encode them
+            byte[] bytes = ch.toBytes();
+            foreach byte b in bytes {
+                result += "%" + byteToHex(b);
+            }
+        }
+    }
+    return result;
+}
+
+isolated function isUnreservedChar(string ch) returns boolean {
+    if ch >= "A" && ch <= "Z" { return true; }
+    if ch >= "a" && ch <= "z" { return true; }
+    if ch >= "0" && ch <= "9" { return true; }
+    if ch == "-" || ch == "_" || ch == "." || ch == "~" { return true; }
+    return false;
+}
+
+isolated function byteToHex(byte b) returns string {
+    string hex = "0123456789ABCDEF";
+    int hi = (b >> 4) & 0xF;
+    int lo = b & 0xF;
+    return hex[hi].toString() + hex[lo].toString();
 }
