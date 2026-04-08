@@ -1,1 +1,93 @@
-[{"name":"HubSpot CRM Contacts", "docsUrl":"https://developers.hubspot.com/docs/api/crm/contacts", "targetTitle":null, "specUrl":"https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Contacts/Rollouts/107729/v3/contacts.json", "specRepo":"HubSpot/HubSpot-public-api-spec-collection", "title":null, "apiVersion":null, "format":"json", "status":"found", "checkedAt":"2026-04-08T08:36:27.615801Z", "elapsedSeconds":83.3}, {"name":"HubSpot CRM Companies", "docsUrl":"https://developers.hubspot.com/docs/api/crm/companies", "targetTitle":null, "specUrl":"https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Companies/Rollouts/424/v3/companies.json", "specRepo":"HubSpot/HubSpot-public-api-spec-collection", "title":null, "apiVersion":null, "format":"json", "status":"found", "checkedAt":"2026-04-08T08:36:07.946171Z", "elapsedSeconds":63.5}, {"name":"HubSpot CRM Deals", "docsUrl":"https://developers.hubspot.com/docs/api/crm/deals", "targetTitle":null, "specUrl":"https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Deals/Rollouts/424/v3/deals.json", "specRepo":"HubSpot/HubSpot-public-api-spec-collection", "title":null, "apiVersion":null, "format":"json", "status":"found", "checkedAt":"2026-04-08T08:36:14.059427Z", "elapsedSeconds":69.6}, {"name":"HubSpot CRM Associations", "docsUrl":"https://developers.hubspot.com/docs/api/crm/associations", "targetTitle":null, "specUrl":"https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Associations/Rollouts/130902/v4/associations.json", "specRepo":"HubSpot/HubSpot-public-api-spec-collection", "title":null, "apiVersion":null, "format":"json", "status":"found", "checkedAt":"2026-04-08T08:36:24.418423Z", "elapsedSeconds":80.0}, {"name":"HubSpot CRM Associations Schema", "docsUrl":"https://developers.hubspot.com/docs/api/crm/associations", "targetTitle":null, "specUrl":"https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Associations%20Schema/Rollouts/130902/v4/associationsSchema.json", "specRepo":"HubSpot/HubSpot-public-api-spec-collection", "title":null, "apiVersion":null, "format":"json", "status":"found", "checkedAt":"2026-04-08T08:36:19.802994Z", "elapsedSeconds":75.3}, {"name":"HubSpot CRM Owners", "docsUrl":"https://developers.hubspot.com/docs/api/crm/owners", "targetTitle":null, "specUrl":"https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Crm%20Owners/Rollouts/146888/v3/crmOwners.json", "specRepo":"HubSpot/HubSpot-public-api-spec-collection", "title":null, "apiVersion":null, "format":"json", "status":"found", "checkedAt":"2026-04-08T08:37:27.299201Z", "elapsedSeconds":59.7}, {"name":"HubSpot CRM Pipelines", "docsUrl":"https://developers.hubspot.com/docs/api/crm/pipelines", "targetTitle":null, "specUrl":"https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Pipelines/Rollouts/145896/v3/pipelines.json", "specRepo":"HubSpot/HubSpot-public-api-spec-collection", "title":null, "apiVersion":null, "format":"json", "status":"found", "checkedAt":"2026-04-08T08:37:17.442176Z", "elapsedSeconds":49.8}]
+[
+    {
+        "name": "HubSpot CRM Contacts",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/contacts",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Contacts/Rollouts/107729/v3/contacts.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-08T08:36:27.615801Z",
+        "elapsedSeconds": 83.3
+    },
+    {
+        "name": "HubSpot CRM Companies",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/companies",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Companies/Rollouts/424/v3/companies.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-08T08:36:07.946171Z",
+        "elapsedSeconds": 63.5
+    },
+    {
+        "name": "HubSpot CRM Deals",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/deals",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Deals/Rollouts/424/v3/deals.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-08T08:36:14.059427Z",
+        "elapsedSeconds": 69.6
+    },
+    {
+        "name": "HubSpot CRM Associations",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/associations",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Associations/Rollouts/130902/v4/associations.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-08T08:36:24.418423Z",
+        "elapsedSeconds": 80.0
+    },
+    {
+        "name": "HubSpot CRM Associations Schema",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/associations",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Associations%20Schema/Rollouts/130902/v4/associationsSchema.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-08T08:36:19.802994Z",
+        "elapsedSeconds": 75.3
+    },
+    {
+        "name": "HubSpot CRM Owners",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/owners",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Crm%20Owners/Rollouts/146888/v3/crmOwners.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-08T08:37:27.299201Z",
+        "elapsedSeconds": 59.7
+    },
+    {
+        "name": "HubSpot CRM Pipelines",
+        "docsUrl": "https://developers.hubspot.com/docs/api/crm/pipelines",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Pipelines/Rollouts/145896/v3/pipelines.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-08T08:37:17.442176Z",
+        "elapsedSeconds": 49.8
+    }
+]
