@@ -9,8 +9,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-09T04:41:14.164920Z",
-        "elapsedSeconds": 70.7
+        "checkedAt": "2026-04-09T05:11:05.371157Z",
+        "elapsedSeconds": 23.5
     },
     {
         "name": "Stripe",
@@ -22,8 +22,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-09T04:40:52.758732Z",
-        "elapsedSeconds": 47.9
+        "checkedAt": "2026-04-09T05:11:06.341530Z",
+        "elapsedSeconds": 23.0
     },
     {
         "name": "Trello",
@@ -35,8 +35,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-09T04:40:29.373825Z",
-        "elapsedSeconds": 24.6
+        "checkedAt": "2026-04-09T05:11:28.444881Z",
+        "elapsedSeconds": 45.1
     },
     {
         "name": "Twilio",
@@ -48,8 +48,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-09T04:41:48.411027Z",
-        "elapsedSeconds": 34.2
+        "checkedAt": "2026-04-09T05:12:08.839144Z",
+        "elapsedSeconds": 17.2
     },
     {
         "name": "Zendesk",
@@ -61,8 +61,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-09T04:41:59.391906Z",
-        "elapsedSeconds": 45.2
+        "checkedAt": "2026-04-09T05:12:01.437927Z",
+        "elapsedSeconds": 9.8
     },
     {
         "name": "Zoom Meetings",
@@ -74,7 +74,46 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-09T04:41:42.788409Z",
-        "elapsedSeconds": 28.6
+        "checkedAt": "2026-04-09T05:12:24.581701Z",
+        "elapsedSeconds": 32.9
+    },
+    {
+        "name": "Slack",
+        "docsUrl": "https://github.com/slackapi/slack-api-specs",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/slackapi/slack-api-specs/master/events-api/slack_events_api_async_v1.json",
+        "specRepo": "slackapi/slack-api-specs",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-09T05:11:04.076867Z",
+        "elapsedSeconds": 20.8
+    },
+    {
+        "name": "Smartsheet",
+        "docsUrl": "https://developers.smartsheet.com/api/smartsheet/introduction",
+        "targetTitle": null,
+        "specUrl": null,
+        "specRepo": null,
+        "title": null,
+        "apiVersion": null,
+        "format": null,
+        "status": "not_found",
+        "checkedAt": "2026-04-09T05:11:51.636210Z",
+        "elapsedSeconds": 68.3
+    },
+    {
+        "name": "Twitter",
+        "docsUrl": "https://github.com/xdevplatform",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/twitter.com/current/2.62/openapi.yaml",
+        "specRepo": "APIs-guru/openapi-directory",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-09T05:12:30.697730Z",
+        "elapsedSeconds": 39.0
     }
 ]

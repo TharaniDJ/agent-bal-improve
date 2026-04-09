@@ -2,7 +2,7 @@
 
 public final Connector[] & readonly ALL_CONNECTORS = [
     {name: "SCIM",          docsUrl: "https://wso2.com/asgardeo/docs/apis/scim2/",                                          targetTitle: ()},
-    {name: "Slack",         docsUrl: "https://github.com/slackapi/slack-api-specs",                                                       targetTitle: ()},
+    {name: "Slack",         docsUrl: "https://github.com/slackapi/slack-api-specs",                                                       targetTitle: ("Slack Web API")},
     {name: "Smartsheet",    docsUrl: "https://developers.smartsheet.com/api/smartsheet/introduction",                       targetTitle: ()},
     {name: "Stripe",        docsUrl: "https://docs.stripe.com/api",                                                         targetTitle: ()},
     {name: "Trello",        docsUrl: "https://developer.atlassian.com/cloud/trello/rest/",                                  targetTitle: ()},
