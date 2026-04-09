@@ -13,32 +13,6 @@
         "elapsedSeconds": 70.7
     },
     {
-        "name": "Slack",
-        "docsUrl": "https://api.slack.com/methods",
-        "targetTitle": null,
-        "specUrl": null,
-        "specRepo": null,
-        "title": null,
-        "apiVersion": null,
-        "format": null,
-        "status": "not_found",
-        "checkedAt": "2026-04-09T04:40:40.638961Z",
-        "elapsedSeconds": 35.9
-    },
-    {
-        "name": "Smartsheet",
-        "docsUrl": "https://developers.smartsheet.com/api/smartsheet/openapi",
-        "targetTitle": null,
-        "specUrl": null,
-        "specRepo": null,
-        "title": null,
-        "apiVersion": null,
-        "format": null,
-        "status": "not_found",
-        "checkedAt": "2026-04-09T04:41:08.336215Z",
-        "elapsedSeconds": 63.5
-    },
-    {
         "name": "Stripe",
         "docsUrl": "https://docs.stripe.com/api",
         "targetTitle": null,
