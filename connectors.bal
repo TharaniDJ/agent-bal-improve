@@ -7,7 +7,7 @@ public final Connector[] & readonly ALL_CONNECTORS = [
     {name: "Stripe",        docsUrl: "https://docs.stripe.com/api",                                                         targetTitle: ()},
     {name: "Trello",        docsUrl: "https://developer.atlassian.com/cloud/trello/rest/",                                  targetTitle: ()},
     {name: "Twilio",        docsUrl: "https://www.twilio.com/docs/usage/api",                                               targetTitle: ()},
-    {name: "Twitter",       docsUrl: "https://developer.x.com/en/docs/x-api",                                               targetTitle: ()},
+    {name: "Twitter",       docsUrl: "https://github.com/xdevplatform",                                               targetTitle: ()},
     {name: "Zendesk",       docsUrl: "https://developer.zendesk.com/api-reference/",                                        targetTitle: ()},
     {name: "Zoom Meetings", docsUrl: "https://developers.zoom.us/docs/api/meetings/",                                       targetTitle: ()}
 ];

@@ -78,19 +78,6 @@
         "elapsedSeconds": 34.2
     },
     {
-        "name": "Twitter",
-        "docsUrl": "https://developer.x.com/en/docs/x-api",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/twitter.com/current/2.62/openapi.yaml",
-        "specRepo": "APIs-guru/openapi-directory",
-        "title": null,
-        "apiVersion": null,
-        "format": "yaml",
-        "status": "found",
-        "checkedAt": "2026-04-09T04:41:53.418497Z",
-        "elapsedSeconds": 39.2
-    },
-    {
         "name": "Zendesk",
         "docsUrl": "https://developer.zendesk.com/api-reference/",
         "targetTitle": null,
