@@ -31,8 +31,6 @@ final json FETCH_PAGE_TOOL = {
 };
 
 // ─── Browser service port ─────────────────────────────────────────────────────
-// The headless browser sidecar (browser-service/server.js) runs on this port.
-// Start it with: node browser-service/server.js
 const int BROWSER_SERVICE_PORT = 3456;
 
 // ─── fetch_page tool handler ──────────────────────────────────────────────────
@@ -46,9 +44,6 @@ function executeFetchPage(string url) returns string {
         string|error body = httpGetBody(url);
         if body is error {
             log:printInfo(string `      error: ${body.message()}`);
-            // For HTML docs pages return an empty-but-valid HTML result so Claude can
-            // continue reasoning (fall back to GitHub). For spec/API files return the
-            // error so Claude knows the URL is unreachable.
             if !isRawContentUrl(url) {
                 return EMPTY_HTML_RESULT;
             }
@@ -99,93 +94,9 @@ function executeFetchPage(string url) returns string {
 
         return string `{"type":"html","spec_links":${jsonArr(specLinks)},"page_text":${jsonStr(txtSnippet)},"other_links":${jsonArr(otherLinks.slice(0, otherCap))}}`;
     } on fail error e {
-        // Safety net: unexpected error during fetch or HTML parsing.
-        // Always return valid JSON so Claude is never left waiting.
         log:printInfo(string `      [fetch] unexpected error: ${e.message()}`);
         return EMPTY_HTML_RESULT;
     }
-}
-
-// ─── Parse SPEC_CANDIDATES output ────────────────────────────────────────────
-
-function pickBestCandidate(string text) returns SpecResult? {
-    int? idx = text.indexOf("SPEC_CANDIDATES:");
-    if idx is () { return (); }
-    string after = text.substring(idx + 16);
-
-    string? specRepo = ();
-    int? repoIdx = text.indexOf("SPEC_REPO:");
-    if repoIdx is int {
-        string repoLine = text.substring(repoIdx + 10);
-        string[] repoLines = splitLines(repoLine);
-        if repoLines.length() > 0 {
-            string repo = repoLines[0].trim();
-            if repo.length() > 0 { specRepo = repo; }
-        }
-    }
-
-    string[] urls = [];
-    map<boolean> seen = {};
-
-    foreach string line in splitLines(after) {
-        string t = line.trim();
-        if t.startsWith("SPEC_REPO:") { break; }
-        if !t.startsWith("http") { continue; }
-
-        string url = t;
-        if url.includes("github.com/") && url.includes("/blob/") {
-            int? ghIdx = url.indexOf("github.com/");
-            if ghIdx is int {
-                string rest = url.substring(ghIdx + 11);
-                string[] parts = splitOn(rest, "/blob/");
-                if parts.length() == 2 {
-                    url = "https://raw.githubusercontent.com/" + parts[0] + "/" + parts[1];
-                }
-            }
-        }
-
-        if !seen.hasKey(url) { seen[url] = true; urls.push(url); }
-
-        if url.includes("raw.githubusercontent.com/") {
-            if specRepo is () {
-                specRepo = inferRepoFromRawUrl(url);
-            }
-            string alt = "";
-            if url.includes("/main/") {
-                int? mi = url.indexOf("/main/");
-                if mi is int { alt = url.substring(0, mi) + "/master/" + url.substring(mi + 6); }
-            } else if url.includes("/master/") {
-                int? mi = url.indexOf("/master/");
-                if mi is int { alt = url.substring(0, mi) + "/main/" + url.substring(mi + 8); }
-            }
-            if alt.length() > 0 && !seen.hasKey(alt) { seen[alt] = true; urls.push(alt); }
-        }
-    }
-
-    foreach string url in urls {
-        log:printInfo(string `  [check] ${url}`);
-        if headOk(url) {
-            string fmt = url.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-            log:printInfo(string `  [ok] ${url}`);
-            return {specUrl: url, specRepo: specRepo, title: (), apiVersion: (), format: fmt};
-        }
-        log:printInfo(string `  [dead] ${url}`);
-    }
-
-    log:printInfo("  [agent] all candidate URLs failed HEAD check");
-    return ();
-}
-
-isolated function inferRepoFromRawUrl(string url) returns string? {
-    string prefix = "raw.githubusercontent.com/";
-    int? pi = url.indexOf(prefix);
-    if pi is () { return (); }
-    string rest = url.substring(pi + prefix.length());
-    string[] parts = splitOn(rest, "/");
-    if parts.length() >= 2 {
-        return parts[0] + "/" + parts[1];
-    }
-    return ();
 }
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
@@ -222,7 +133,6 @@ function callClaude(string apiKey, string model, json[] messages, string systemP
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
-// Returns true for raw spec/API file URLs (GitHub API, .yaml, .yml, .json).
 isolated function isRawContentUrl(string url) returns boolean {
     string lo = url.toLowerAscii();
     if lo.includes("api.github.com") { return true; }
@@ -231,7 +141,6 @@ isolated function isRawContentUrl(string url) returns boolean {
     return false;
 }
 
-// Checks if the headless browser service is running on localhost.
 isolated function isBrowserServiceAvailable() returns boolean {
     do {
         http:Client cl = check new (string `http://localhost:${BROWSER_SERVICE_PORT}`, {timeout: 2});
@@ -242,9 +151,6 @@ isolated function isBrowserServiceAvailable() returns boolean {
     }
 }
 
-// Fetches a SPA URL via the headless browser service.
-// Returns the rendered HTML, or an error if the service is unavailable or slow.
-// Timeout is intentionally short — fail fast rather than block the pipeline.
 function httpGetBodyViaBrowser(string url) returns string|error {
     log:printInfo(string `    [browser-fetch] ${url}`);
     http:Client cl = check new (string `http://localhost:${BROWSER_SERVICE_PORT}`, {timeout: 20});
@@ -257,7 +163,6 @@ function httpGetBodyViaBrowser(string url) returns string|error {
     if respJson is map<json> {
         json? htmlVal = respJson["html"];
         if htmlVal is string {
-            // Cap at 50KB — enough to find Download OpenAPI links, avoids Claude context overflow
             string capped = htmlVal.length() > 50000 ? htmlVal.substring(0, 50000) : htmlVal;
             log:printInfo(string `    [browser-fetch] OK — ${htmlVal.length()} bytes (capped to ${capped.length()})`);
             return capped;
@@ -270,7 +175,6 @@ function httpGetBodyViaBrowser(string url) returns string|error {
     return error("Browser service returned unexpected response");
 }
 
-
 function httpGetBody(string url) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
     map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
@@ -278,7 +182,6 @@ function httpGetBody(string url) returns string|error {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
-    // Raw content (GitHub API, spec files): plain HTTP only, no browser needed.
     if isRawContentUrl(url) {
         http:Client cl = check new (url, {
             followRedirects: {enabled: true, maxCount: 5},
@@ -292,14 +195,10 @@ function httpGetBody(string url) returns string|error {
         return check resp.getTextPayload();
     }
 
-    // HTML docs pages always go through the headless browser service.
-    // This handles SPAs, JS-rendered pages, and any site that blocks plain HTTP —
-    // without needing to know in advance which domains require it.
     if isBrowserServiceAvailable() {
         return httpGetBodyViaBrowser(url);
     }
 
-    // Browser service not running — fall back to plain HTTP with a short timeout.
     log:printInfo(string `    [browser-warn] browser service not running — plain HTTP fallback for ${url}`);
     log:printInfo("    [browser-warn] Start with: node browser-service/server.js");
     http:Client cl = check new (url, {
@@ -427,6 +326,18 @@ isolated function dir(string url) returns string {
 }
 
 // ─── String utilities ─────────────────────────────────────────────────────────
+
+isolated function inferRepoFromRawUrl(string url) returns string? {
+    string prefix = "raw.githubusercontent.com/";
+    int? pi = url.indexOf(prefix);
+    if pi is () { return (); }
+    string rest = url.substring(pi + prefix.length());
+    string[] parts = splitOn(rest, "/");
+    if parts.length() >= 2 {
+        return parts[0] + "/" + parts[1];
+    }
+    return ();
+}
 
 isolated function splitOn(string s, string sep) returns string[] {
     string[] parts = [];

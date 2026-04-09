@@ -14,22 +14,11 @@ import ballerina/log;
 import ballerina/os;
 
 // ─── STEP 1: Quick Verify (stable/direct URLs only) ──────────────────────────
-// Only for non-GitHub direct endpoints like:
-//   developer.candid.org/openapi/...
-//   www.elastic.co/docs/api/...
-//   api.mailchimp.com/schema/...
-//   app.stainless.com/api/spec/...
-//   developers.smartsheet.com/...
-//   dac-static.atlassian.com/...
-//
-// These are CDN/API endpoints that always serve the current version.
-// A HEAD check + content sniff is sufficient — no sibling checking needed.
-// Returns the existing SpecResult if valid, null if we need further checking.
 
 public function stepQuickVerify(
     string? knownSpecUrl,
     string? knownSpecRepo,
-    string docsUrl,
+    string sourceUrl,
     string anthropicKey
 ) returns SpecResult?|string {
 
@@ -38,29 +27,26 @@ public function stepQuickVerify(
         return ();
     }
 
-    // GitHub-hosted URLs need version-sibling checking — handled by step 2
     if knownSpecUrl.includes("raw.githubusercontent.com") {
         log:printInfo("  [step1] GitHub URL — skipping to version check");
         return ();
     }
 
-    // Non-GitHub stable endpoints: use LLM to validate AND check for a newer version
     log:printInfo(string `  [step1] stable endpoint — LLM version check: ${knownSpecUrl}`);
-    return stepStableVersionCheck(knownSpecUrl, docsUrl, knownSpecRepo, anthropicKey);
+    return stepStableVersionCheck(knownSpecUrl, sourceUrl, knownSpecRepo, anthropicKey);
 }
 
-// ─── STEP 1b: Stable Version Check (LLM-assisted) ────────────────────────────
-// For non-GitHub stable endpoints (CDN, API gateway, developer portals).
-// Claude fetches the docs page to determine whether the known URL is still the
-// latest stable version, and returns the best URL it finds.
-//
-// Returns:
-//   SpecResult  → valid URL (same or newer)
-//   "DEAD"      → known URL is gone or no longer a spec
-//   ()          → agent error/timeout
+// ─── STEP 1b: Stable Version Check ───────────────────────────────────────────
 
 const string STABLE_CHECK_SYSTEM_PROMPT =
     "You are verifying whether a known OpenAPI/Swagger spec URL is still the LATEST STABLE version.\n" +
+    "\n" +
+    "## CRITICAL: Only OpenAPI/Swagger specs are acceptable\n" +
+    "The spec file MUST contain one of these as a root-level key:\n" +
+    "  - openapi: (OpenAPI 3.x) — value like '3.0.0', '3.1.0'\n" +
+    "  - swagger: (OpenAPI 2.x) — value like '2.0'\n" +
+    "AsyncAPI specs (asyncapi: key), JSON Schema files, and other API description\n" +
+    "formats are NOT acceptable. If you find one, keep searching.\n" +
     "\n" +
     "## Tool: fetch_page\n" +
     "Fetches a URL. Returns:\n" +
@@ -73,60 +59,37 @@ const string STABLE_CHECK_SYSTEM_PROMPT =
     "  - Never fetch the same URL twice\n" +
     "  - Never fetch github.com/blob/ or github.com/tree/ pages\n" +
     "\n" +
-    "## Your task — follow these steps in order\n" +
+    "## Your task\n" +
     "\n" +
     "### Step 1: Validate the known URL\n" +
     "Fetch the known spec URL.\n" +
-    "  - If the fetch fails (404, error) OR the content does not contain\n" +
-    "    openapi:, swagger:, \"openapi\", or \"swagger\" → output DEAD immediately.\n" +
-    "  - If valid → note the spec content and proceed to Step 2.\n" +
+    "  - If 404/error OR content does not have openapi:/swagger: as root key → output DEAD.\n" +
+    "  - If it is an AsyncAPI spec (asyncapi: key) → output DEAD.\n" +
+    "  - If valid OpenAPI/Swagger → proceed to Step 2.\n" +
     "\n" +
-    "### Step 2: Fetch the docs page\n" +
-    "ALWAYS fetch the docs URL next — it is the authoritative source for the\n" +
-    "current latest version.\n" +
-    "  - Scan spec_links, other_links, and page_text for any URL ending in\n" +
-    "    .yaml or .json, or containing: openapi, swagger, spec, reference, download\n" +
-    "  - Read page text to identify which API versions are mentioned and which\n" +
-    "    is marked as 'latest', 'current', 'stable', or 'GA'\n" +
-    "  - If the page lists versioned spec URLs, identify the one with the\n" +
-    "    highest stable version number\n" +
-    "  - If there is a changelog or release-notes link, you MAY fetch it (counts\n" +
-    "    toward your fetch budget) to confirm the current stable release\n" +
+    "### Step 2: Fetch the source URL\n" +
+    "ALWAYS fetch the source URL next.\n" +
+    "  - Look for newer stable OpenAPI/Swagger spec URLs.\n" +
+    "  - If no newer version found → return the known URL.\n" +
     "\n" +
     "### Step 3: Compare and decide\n" +
-    "  - If the docs page reveals a NEWER stable spec URL than the known URL\n" +
-    "    → return the newer URL\n" +
-    "  - If the known URL is already the latest stable version\n" +
-    "    → return the known URL unchanged\n" +
-    "  - If the docs page yields no spec links at all\n" +
-    "    → return the known URL unchanged (it was valid per Step 1)\n" +
+    "  - Return newer URL if found, otherwise return known URL.\n" +
+    "  - Never return prerelease/beta/alpha URLs.\n" +
     "\n" +
-    "## Stability rules — apply to every URL you consider\n" +
-    "NEVER return a URL that contains any of these labels:\n" +
-    "  alpha, beta, rc, preview, dev, snapshot, canary, nightly,\n" +
-    "  staging, draft, wip, experimental, pre-release, next, edge\n" +
-    "Among multiple stable candidates, pick the best using this priority:\n" +
-    "  1. Named semantic version (v3, v4, v2, etc.) — HIGHEST number wins\n" +
-    "  2. Date-based version (2024-01, 20240101, etc.) — only if NO named\n" +
-    "     version folders/files exist; dates can be prereleases or snapshots\n" +
-    "  3. If both types are present, ALWAYS prefer the named version over any date.\n" +
+    "## Output format\n" +
     "\n" +
-    "## Output format — EXACTLY one of these, no other text\n" +
-    "\n" +
-    "When a valid stable spec URL is confirmed:\n" +
+    "Valid:\n" +
     "STABLE_CHECK_RESULT:\n" +
-    "URL: https://raw-or-direct-download-url\n" +
+    "URL: https://...\n" +
     "REPO: owner/repo\n" +
     "\n" +
-    "(REPO line is optional — omit if not applicable)\n" +
-    "\n" +
-    "When the known URL is dead or content is not a spec:\n" +
+    "Dead/not a spec:\n" +
     "STABLE_CHECK_RESULT:\n" +
     "DEAD\n";
 
 public function stepStableVersionCheck(
     string knownSpecUrl,
-    string docsUrl,
+    string sourceUrl,
     string? knownSpecRepo,
     string anthropicKey
 ) returns SpecResult?|string {
@@ -136,14 +99,13 @@ public function stepStableVersionCheck(
     string userMsg = string `Verify this OpenAPI spec URL and check if it is still the latest stable version.
 
 Known spec URL: ${knownSpecUrl}
-Docs URL: ${docsUrl}
+Source URL: ${sourceUrl}
 
 Steps:
-1. Fetch the known spec URL to confirm it is still a valid OpenAPI/Swagger spec.
-   If it is dead or not a spec → output DEAD.
-2. Fetch the docs URL to check for any newer stable spec version.
-   Look for spec links (.yaml, .json, openapi, swagger) and version indicators.
-3. Return the best stable URL found (newer if available, otherwise the known URL).
+1. Fetch the known spec URL — confirm it has openapi: or swagger: as a root key.
+   If it is an AsyncAPI spec or not a spec at all → output DEAD.
+2. Fetch the source URL to check for any newer stable spec version.
+3. Return the best stable URL found.
 
 Return STABLE_CHECK_RESULT.`;
 
@@ -256,7 +218,6 @@ function parseStableCheckResult(string text, string fallbackUrl, string? fallbac
         else if t.startsWith("REPO:") { repo = t.substring(5).trim(); }
     }
 
-    // Fall back to the known URL if Claude returned nothing parseable
     if url.length() == 0 { url = fallbackUrl; }
 
     if !headOk(url) {
@@ -276,22 +237,17 @@ function parseStableCheckResult(string text, string fallbackUrl, string? fallbac
 }
 
 // ─── STEP 2: GitHub Version Check ────────────────────────────────────────────
-// For GitHub-hosted specs with a known URL.
-// Fetches the known URL to confirm it is still valid, then checks the parent
-// folder for newer siblings.
-//
-// Returns:
-//   SpecResult  → valid URL (same or newer)
-//   "DEAD"      → known URL is gone, need full re-discovery
-//   ()          → agent error/timeout
 
 const string GITHUB_CHECK_SYSTEM_PROMPT =
     "You are checking whether a GitHub-hosted OpenAPI spec URL is still the LATEST version.\n" +
     "\n" +
+    "## CRITICAL: Only OpenAPI/Swagger specs are acceptable\n" +
+    "The spec MUST contain openapi: or swagger: as a root-level key.\n" +
+    "asyncapi: specs, JSON Schema, and other formats are NOT acceptable.\n" +
+    "\n" +
     "## Tool: fetch_page\n" +
-    "Fetches a URL. Use it with the GitHub Contents API:\n" +
+    "Use with the GitHub Contents API:\n" +
     "  https://api.github.com/repos/OWNER/REPO/contents/PATH\n" +
-    "Returns a JSON array of {name, type, path, download_url} entries.\n" +
     "\n" +
     "Rules:\n" +
     "  - Maximum 5 fetch_page calls\n" +
@@ -299,30 +255,24 @@ const string GITHUB_CHECK_SYSTEM_PROMPT =
     "  - Never fetch github.com/blob/ or github.com/tree/ pages\n" +
     "\n" +
     "## Your task\n" +
-    "1. Fetch the known spec URL to confirm it is still valid\n" +
-    "   (content must contain openapi: or swagger: or \"openapi\" or \"swagger\")\n" +
-    "   - If 404 or not a spec → output DEAD\n" +
-    "   - If valid → proceed to step 2\n" +
-    "2. Check the parent folder using the Contents API for newer siblings:\n" +
-    "   - List the parent folder and look for other spec files or subfolders\n" +
-    "   - If multiple spec files or version folders exist, pick the best using\n" +
-    "     this VERSION PRIORITY (apply in order):\n" +
-    "       a. Named semantic version folders/files (v3, v4, v2 …) — highest wins\n" +
-    "       b. Date-based folders/files (2024-01, 20240101 …) — only if NO\n" +
-    "          named version siblings exist; dates can be prereleases or snapshots\n" +
-    "       c. If both types present, ALWAYS prefer named version over any date\n" +
-    "   - Prefer files whose name contains: openapi, swagger, api, spec\n" +
-    "   - Skip folders or files that appear to be staging, preview, or draft versions\n" +
-    "3. If a newer version exists → return it. Otherwise → return the original.\n" +
+    "1. Fetch the known spec URL — verify it has openapi: or swagger: root key.\n" +
+    "   If AsyncAPI or not a spec → output DEAD.\n" +
+    "   If valid → proceed to step 2.\n" +
+    "2. Check the parent folder for newer siblings.\n" +
+    "   Pick the best using VERSION PRIORITY:\n" +
+    "     a. Named semantic versions (v3, v4 …) — highest wins\n" +
+    "     b. Date-based (2024-01 …) — only if no named versions exist\n" +
+    "     c. Named always beats date\n" +
+    "3. Return the best valid OpenAPI/Swagger URL.\n" +
     "\n" +
-    "## Output format — EXACTLY one of these, no other text\n" +
+    "## Output format\n" +
     "\n" +
-    "When the spec is valid (same or newer URL found):\n" +
+    "Valid:\n" +
     "GITHUB_CHECK_RESULT:\n" +
     "URL: https://raw-download-url\n" +
     "REPO: owner/repo\n" +
     "\n" +
-    "When the known URL is dead or content is not a spec:\n" +
+    "Dead/invalid:\n" +
     "GITHUB_CHECK_RESULT:\n" +
     "DEAD\n";
 
@@ -349,7 +299,10 @@ public function stepGithubVersionCheck(
     string userMsg = string `Check if this GitHub-hosted OpenAPI spec URL is still the latest version:
 Known URL: ${knownSpecUrl}${repoContext}${repoForContentsApi}
 
-1. Fetch the known URL to verify it is still a valid spec
+IMPORTANT: The spec must contain openapi: or swagger: as a root-level key.
+If it is an AsyncAPI spec (asyncapi: key), treat as DEAD and output DEAD.
+
+1. Fetch the known URL to verify it is a valid OpenAPI/Swagger spec
 2. Check the parent folder for newer siblings
 3. Return GITHUB_CHECK_RESULT`;
 
@@ -481,107 +434,78 @@ function parseGithubCheckResult(string text, string? fallbackRepo) returns SpecR
 }
 
 // ─── STEP 3: Discovery Agent ──────────────────────────────────────────────────
-// Always fetches the docs URL first (SPA detection is handled transparently
-// by httpGetBody in agent.bal). GitHub search and APIs-guru are fallbacks only.
 
 const string DISCOVERY_SYSTEM_PROMPT =
-    "You are an expert at finding publicly available latest updated OpenAPI/Swagger specification files.\n" +
+    "You are an expert at finding publicly available OpenAPI/Swagger specification files.\n" +
+    "\n" +
+    "## CRITICAL: Only OpenAPI/Swagger specs are acceptable\n" +
+    "The spec file MUST contain one of these as a ROOT-LEVEL key:\n" +
+    "  - `openapi:` (OpenAPI 3.x) — value must be '3.0.x' or '3.1.x'\n" +
+    "  - `swagger:` (OpenAPI 2.x) — value must be '2.0'\n" +
+    "\n" +
+    "REJECT immediately — do NOT return these:\n" +
+    "  - AsyncAPI specs: contain `asyncapi:` root key (NOT openapi/swagger)\n" +
+    "  - JSON Schema files: contain `$schema:` root key\n" +
+    "  - GraphQL schemas, protobuf files, RAML specs\n" +
+    "  - Event-API specs, webhook schemas, message schemas\n" +
+    "  - Any spec whose filename contains: async, event, webhook, message, schema\n" +
+    "\n" +
+    "When you fetch a spec file and its content starts with `asyncapi:` or contains\n" +
+    "`\"asyncapi\":` as a root key → that is an AsyncAPI spec, NOT OpenAPI. Reject it\n" +
+    "and keep searching.\n" +
     "\n" +
     "## Your ONLY job\n" +
     "Find the raw download URL(s) for the LATEST STABLE OpenAPI/Swagger spec file.\n" +
-    "Always target the highest released stable version — never prereleases, betas, RCs, or in-progress specs.\n" +
     "Return a structured list of candidate URLs — do NOT verify content.\n" +
     "\n" +
-    "## PRIORITY ORDER — follow this strictly, top to bottom\n" +
+    "## PRIORITY ORDER — follow strictly, top to bottom\n" +
     "\n" +
-    "### PRIORITY 1 (ALWAYS do this first): Official docs page\n" +
-    "ALWAYS fetch the docs URL as your very first action (unless knownSpecRepo is given).\n" +
-    "The docs page is the most authoritative source. It often has a visible\n" +
-    "'Download OpenAPI', 'Download spec', or 'OpenAPI spec' link or button.\n" +
+    "### PRIORITY 1: Source URL (ALWAYS do this first)\n" +
+    "ALWAYS fetch the source URL as your very first action.\n" +
+    "Look for:\n" +
+    "  - Direct .yaml/.json download links\n" +
+    "  - 'Download OpenAPI', 'Download spec', 'OpenAPI spec' links\n" +
+    "  - GitHub repo links → use Contents API to find spec files\n" +
+    "  - README files that reference spec URLs\n" +
     "\n" +
-    "When reading the docs page response:\n" +
-    "  - Look in spec_links for any .yaml, .json, or openapi/swagger URLs\n" +
-    "  - Look in other_links for links containing: download, openapi, swagger, spec, reference\n" +
-    "  - Look in page_text for mentions of spec URLs or download buttons\n" +
-    "  - IMPORTANT: If the page contains ANY URL ending in .yaml, .json, or containing\n" +
-    "    'openapi', 'swagger', or 'spec' — add it as a candidate IMMEDIATELY.\n" +
-    "    These vendor-hosted URLs (CDN, API gateway, static assets) are OFFICIAL and\n" +
-    "    must be returned before any GitHub or APIs-guru link.\n" +
-    "  - If the page has a 'Download OpenAPI' button link — that IS the answer, stop here.\n" +
-    "\n" +
-    "Version detection from the docs page:\n" +
-    "  - Read the page text to identify which API versions are mentioned\n" +
-    "    (look for version numbers in headings, navigation, URL paths, or page_text)\n" +
-    "  - Identify the HIGHEST stable version — the one marked as 'latest', 'current',\n" +
-    "    'stable', 'GA', or carrying the highest semver/date number\n" +
-    "  - If the page lists versioned spec URLs, apply VERSION TYPE PRIORITY:\n" +
-    "      Named versions (/v3/openapi.yaml, /v4/spec.json) ALWAYS beat date-based ones\n" +
-    "      (/2024-01/openapi.yaml). Use date-based only when no named versions exist.\n" +
-    "      Among the winning type, pick the highest/most-recent stable entry.\n" +
-    "  - If there is a changelog or release-notes link on the page, fetch it to confirm\n" +
-    "    which version is the current stable release before choosing a URL\n" +
-    "  - NEVER return a URL that contains: alpha, beta, rc, preview, dev, snapshot,\n" +
-    "    canary, nightly, staging, draft, wip, experimental, pre-release, or next\n" +
+    "When the source URL is a GitHub repo:\n" +
+    "  - Fetch api.github.com/repos/OWNER/REPO/contents/ to list files\n" +
+    "  - Look for spec files: openapi.yaml, swagger.yaml, spec.yaml, api.yaml etc.\n" +
+    "  - Check subdirectories: /spec/, /openapi/, /swagger/\n" +
+    "  - For repos with multiple files (like twilio-oai), identify the PRIMARY spec\n" +
+    "    (e.g. twilio_api_v2010.yaml for Twilio, not product-specific sub-specs)\n" +
+    "  - ALWAYS fetch at least one candidate file to check its root key before returning\n" +
     "\n" +
     "### PRIORITY 2: Vendor's official GitHub repository\n" +
-    "Only if the docs page yields nothing useful:\n" +
-    "  1. If knownSpecRepo given → use Contents API on that repo directly\n" +
-    "  2. Otherwise infer the GitHub org/repo from the API name or docs URL\n" +
-    "     and try the Contents API on the most likely repo name\n" +
+    "Only if the source URL yields nothing useful:\n" +
+    "  1. Infer the GitHub org/repo from the API name or source URL\n" +
+    "  2. Try Contents API on the most likely repo name\n" +
     "  3. Try common repo name patterns: {vendor}-openapi, {vendor}-api-spec,\n" +
-    "     openapi-{vendor}, {vendor}-rest-api-specifications, {vendor}-swagger\n" +
-    "  4. Drill into folders to find .yaml/.json spec files\n" +
-    "  5. Prefer files whose name contains: openapi, swagger, api, spec\n" +
-    "  6. Prefer files in root, /spec/, /openapi/, /defs/ over deeply nested paths\n" +
-    "  7. Skip folders named: test, example, archive, staging, preview, draft\n" +
+    "     openapi-{vendor}, {vendor}-rest-api-specifications\n" +
+    "  4. Drill into folders to find OpenAPI spec files\n" +
+    "  5. Skip: test/, example/, archive/, events-api/, async-api/, webhook/\n" +
     "\n" +
-    "Versioning strategy — ALWAYS do this when you have a vendor repo:\n" +
-    "  a. Understand how the repo publishes spec versions before picking a file.\n" +
-    "     Fetch the repo root via the Contents API and look for patterns such as:\n" +
-    "       - Version-named folders (/v1/, /v2/, /2023-01/, etc.)\n" +
-    "       - Version-named files (openapi-v3.yaml, openapi-2024-10.json)\n" +
-    "       - Versioned branches (release/v2, v3-stable)\n" +
-    "       - GitHub Releases/tags (fetch https://api.github.com/repos/OWNER/REPO/releases\n" +
-    "         or /tags to see published versions)\n" +
-    "  b. Once you understand the versioning pattern, identify the LATEST STABLE version.\n" +
-    "     VERSION PRIORITY — apply in this order for every source:\n" +
-    "       1. Named semantic version folders/files (v3, v4, v2, etc.):\n" +
-    "          ALWAYS prefer these. Pick the highest number.\n" +
-    "       2. Date-based folders/files (2024-01, 20240101, 2023-10, etc.):\n" +
-    "          Use ONLY when no named-version siblings exist. Dates can represent\n" +
-    "          prereleases, snapshots, or rolling work-in-progress cuts.\n" +
-    "       3. If BOTH types are present in the same folder/repo, the named version\n" +
-    "          ALWAYS wins regardless of which date is more recent.\n" +
-    "     Apply this to specific repo layouts:\n" +
-    "       - For folder-per-version repos: pick the highest named-version folder\n" +
-    "         first; fall back to the latest date folder only if no named ones exist\n" +
-    "       - For release/tag-based repos: fetch /releases and pick the latest non-prerelease\n" +
-    "         (prerelease: false in the GitHub API response) or the highest semver tag\n" +
-    "         that does NOT contain: alpha, beta, rc, preview, dev, snapshot, canary, next\n" +
-    "       - For single-file repos that update in place (main/master branch): that file\n" +
-    "         IS the latest version — use it\n" +
-    "  c. Always use raw.githubusercontent.com download URLs pointing at the\n" +
-    "     latest stable commit/tag — NEVER github.com/blob/ links\n" +
-    "  d. If the repo uses GitHub Releases to publish spec files as release assets,\n" +
-    "     use the browser_download_url of the latest non-prerelease release asset\n" +
+    "### PRIORITY 3: Vendor CDN / developer portal\n" +
+    "Only if GitHub yields nothing:\n" +
+    "  - Try common CDN patterns: dac-static.{vendor}.com/openapi/\n" +
+    "  - Try developer.{vendor}.com/openapi/\n" +
     "\n" +
-    "### PRIORITY 3: Other official vendor sources\n" +
-    "Only if docs page AND GitHub both yield nothing:\n" +
-    "  - Check vendor CDN or static asset URLs you know about for this vendor\n" +
-    "  - Check the vendor's developer portal for a spec download endpoint\n" +
-    "  - Try common CDN patterns: dac-static.{vendor}.com, developer.{vendor}.com/openapi/\n" +
-    "\n" +
-    "### PRIORITY 4 (ABSOLUTE LAST RESORT ONLY): APIs-guru directory\n" +
-    "CRITICAL: Only check APIs-guru AFTER you have:\n" +
-    "  (a) fetched the docs page AND found no spec links, AND\n" +
-    "  (b) tried at least one vendor GitHub repo AND found no spec file.\n" +
-    "Do NOT jump to APIs-guru early. APIs-guru specs are often outdated mirrors.\n" +
-    "The official vendor source is ALWAYS preferred over APIs-guru.\n" +
-    "\n" +
-    "When you must fall back to APIs-guru:\n" +
+    "### PRIORITY 4 (LAST RESORT): APIs-guru directory\n" +
+    "ONLY after source URL AND vendor GitHub have both failed:\n" +
     "  https://api.github.com/repos/APIs-guru/openapi-directory/contents/APIs\n" +
-    "  Find the folder matching the API provider name (e.g. zoom.us, stripe.com).\n" +
-    "  Drill into the version subfolder and get the download_url of openapi.yaml.\n" +
+    "  IMPORTANT: APIs-guru may contain AsyncAPI specs — always verify the root key.\n" +
+    "\n" +
+    "## GitHub repo with targetTitle\n" +
+    "If a targetTitle is provided, find the spec matching that specific API product.\n" +
+    "For repos with many spec files (like Twilio's twilio-oai), pick the one whose\n" +
+    "filename best matches the targetTitle.\n" +
+    "\n" +
+    "## If no spec file found after exhausting all sources\n" +
+    "As a LAST RESORT ONLY (after trying source URL, vendor GitHub, CDN, and APIs-guru),\n" +
+    "you may return the vendor's GitHub repository URL as a fallback:\n" +
+    "  REPO_FALLBACK: https://github.com/OWNER/REPO\n" +
+    "Only do this if you have confirmed the repo exists and likely contains specs,\n" +
+    "but you could not identify the exact file path.\n" +
     "\n" +
     "## Tool: fetch_page\n" +
     "Fetches a URL. Returns:\n" +
@@ -590,37 +514,12 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "  - YAML file  → { type: \"yaml\", content: \"<first 4 KB>\" }\n" +
     "\n" +
     "Rules:\n" +
-    "  - Maximum 8 fetch_page calls total\n" +
+    "  - Maximum 10 fetch_page calls total\n" +
     "  - Never fetch the same URL twice\n" +
-    "  - Never fetch github.com/blob/ or github.com/tree/ (use Contents API instead)\n" +
+    "  - Never fetch github.com/blob/ or github.com/tree/\n" +
     "  - GitHub Contents API: https://api.github.com/repos/OWNER/REPO/contents/PATH\n" +
     "\n" +
-    "## Version detection summary\n" +
-    "For ANY source (docs page, GitHub repo, CDN), apply these rules:\n" +
-    "  1. Read the source to understand its versioning scheme before picking a URL\n" +
-    "  2. Always select the HIGHEST stable released version available\n" +
-    "  3. A version is stable if it does NOT carry any of these labels:\n" +
-    "       alpha, beta, rc, preview, dev, snapshot, canary, nightly,\n" +
-    "       staging, draft, wip, experimental, pre-release, next, edge\n" +
-    "  4. VERSION TYPE PRIORITY — when comparing candidates across version types:\n" +
-    "       a. Named semantic versions (v3, v4, v2 …) ALWAYS beat date-based ones\n" +
-    "          (2024-01, 20240101 …). Dates can be prereleases or unstable snapshots.\n" +
-    "       b. Use date-based versions ONLY if no named-version folders/files exist.\n" +
-    "       c. When only date-based versions exist, pick the most recent stable date.\n" +
-    "  5. For GitHub repos use /releases (prefer prerelease:false) or /tags\n" +
-    "     to find the latest stable tag when the repo uses explicit release tags\n" +
-    "  6. For versioned-folder repos, apply rule 4 first (named > date), then\n" +
-    "     pick the highest within the winning type\n" +
-    "  7. The returned URL must resolve to the spec at that stable version —\n" +
-    "     never return a URL that might point to work-in-progress content\n" +
-    "\n" +
-    "## File selection preferences\n" +
-    "  - Prefer highest OpenAPI/Swagger version (3.1.0 > 3.0.0 > 2.0)\n" +
-    "  - Prefer YAML over JSON at the same version\n" +
-    "  - Prefer the latest stable release tag over the default branch when the repo\n" +
-    "    uses explicit versioned releases; prefer default branch otherwise\n" +
-    "\n" +
-    "## Output format — EXACTLY this, nothing else\n" +
+    "## Output format\n" +
     "DISCOVERY_RESULT:\n" +
     "REPO: owner/repo\n" +
     "URL: https://raw-download-url-1\n" +
@@ -631,10 +530,11 @@ const string DISCOVERY_SYSTEM_PROMPT =
     "NONE\n" +
     "\n" +
     "Only raw download URLs. Never github.com/blob/ links. No other text.\n" +
-    "IMPORTANT: List official vendor URLs BEFORE any APIs-guru URLs.";
+    "List official vendor URLs BEFORE any APIs-guru URLs.\n" +
+    "NEVER include AsyncAPI, event-api, or webhook spec URLs in the output.";
 
 public function stepDiscovery(
-    string docsUrl,
+    string sourceUrl,
     string apiName,
     string? targetTitle,
     string anthropicKey,
@@ -644,31 +544,39 @@ public function stepDiscovery(
     log:printInfo("  [step3] starting discovery");
 
     string targetNote = targetTitle is string
-        ? string `\nTarget: find ONLY the spec titled '${targetTitle}'.`
+        ? string `\nTarget: find ONLY the OpenAPI/Swagger spec for '${targetTitle}'. Ignore unrelated specs.`
         : "";
 
     string repoHint = knownSpecRepo is string
         ? string `\nKnown GitHub repo: ${knownSpecRepo} — start here with Contents API.`
         : "";
 
-    string userMsg = string `Find the OpenAPI spec download URL for: ${apiName}
-Docs URL: ${docsUrl}${targetNote}${repoHint}
+    string userMsg = string `Find the OpenAPI/Swagger spec download URL for: ${apiName}
+Source URL: ${sourceUrl}${targetNote}${repoHint}
+
+CRITICAL REQUIREMENTS:
+- The spec MUST have openapi: or swagger: as its ROOT-LEVEL key.
+- AsyncAPI specs (asyncapi: root key) are NOT acceptable — reject and keep searching.
+- Event-api, webhook, and async specs are NOT acceptable.
 
 STRICT PRIORITY ORDER:
-1. ALWAYS fetch the docs URL first — it often has a direct download link or an embedded spec URL.
-   If the docs page contains ANY URL ending in .yaml/.json or containing 'openapi'/'swagger', that is the official spec — return it immediately.
-2. Only if docs page is empty/useless → check the vendor's official GitHub repo.
-3. ONLY as an absolute last resort, after docs page AND vendor GitHub have both failed → check APIs-guru.
-   Never jump to APIs-guru early. Official vendor sources are always preferred.
+1. ALWAYS fetch the source URL first.
+   If it is a GitHub repo URL, use the Contents API to list files.
+   Look for openapi.yaml, swagger.yaml, api.yaml, spec.yaml in root and /spec/ /openapi/ subdirs.
+   Fetch at least one candidate file to verify it has openapi: or swagger: as root key.
+2. Only if source URL yields nothing → check the vendor's official GitHub repo.
+3. Only if both fail → check vendor CDN/portal.
+4. ONLY as absolute last resort → check APIs-guru (but verify it is not AsyncAPI).
 
-Return DISCOVERY_RESULT with raw download URLs only. List official vendor URLs before any APIs-guru URLs.`;
+Return DISCOVERY_RESULT with raw download URLs only.
+NEVER include AsyncAPI spec URLs.`;
 
     json[] messages = [{"role": "user", "content": userMsg}];
     map<boolean> fetched = {};
     string model = os:getEnv("CLAUDE_MODEL");
     if model.length() == 0 { model = "claude-sonnet-4-6"; }
 
-    int maxTurns = 10;
+    int maxTurns = 12;
     int turn = 0;
 
     while turn < maxTurns {
@@ -746,11 +654,10 @@ Return DISCOVERY_RESULT with raw download URLs only. List official vendor URLs b
             messages.push({
                 "role": "user",
                 "content": "Output DISCOVERY_RESULT now.\n" +
-                    "IMPORTANT: Have you checked the docs page AND the vendor's official GitHub repo?\n" +
-                    "If not, do that first — official vendor sources must be tried before APIs-guru.\n" +
-                    "Only fall back to APIs-guru if both the docs page and vendor GitHub have been tried and yielded nothing.\n" +
-                    "Return whatever official URLs you found, even if you are not 100% certain they are specs.\n" +
-                    "APIs-guru is acceptable ONLY as a last resort when all official sources are exhausted."
+                    "IMPORTANT: Only include OpenAPI/Swagger spec URLs (openapi: or swagger: root key).\n" +
+                    "Do NOT include AsyncAPI (asyncapi: key), event-api, or webhook spec URLs.\n" +
+                    "If you truly found nothing after trying source URL, vendor GitHub, and APIs-guru,\n" +
+                    "output DISCOVERY_RESULT:\\nNONE"
             });
             continue;
         }
@@ -809,11 +716,6 @@ function parseDiscoveryResult(string text) returns DiscoveryResult {
 }
 
 // ─── STEP 4: Content Verify ───────────────────────────────────────────────────
-// Pure HTTP — no Claude needed.
-// Confirms each candidate URL actually contains a valid spec.
-//
-// NOTE: Fetches 100KB to handle large specs like Stripe (~14MB) where
-// the `openapi:` field appears deep in the file, not at the start.
 
 public function stepContentVerify(
     DiscoveryResult discovery
@@ -834,16 +736,14 @@ public function stepContentVerify(
             continue;
         }
 
-        // Fetch 100KB — needed for large specs (e.g. Stripe) where openapi:
-        // field is not in the first few KB due to alphabetical YAML ordering
         string|error body = httpGetBodyPartial(url, 100000);
         if body is error {
             log:printInfo("  [step4] content fetch failed — skipping");
             continue;
         }
 
-        if !looksLikeSpec(body) {
-            log:printInfo("  [step4] content is not a spec — skipping");
+        if !looksLikeOpenApiSpec(body) {
+            log:printInfo("  [step4] content is not an OpenAPI/Swagger spec — skipping");
             continue;
         }
 
@@ -863,29 +763,44 @@ public function stepContentVerify(
 }
 
 // ─── Spec content detection ───────────────────────────────────────────────────
-// Checks whether a string looks like an OpenAPI/Swagger spec.
-// Handles large specs where openapi: field is not at the very start.
+// Validates that a file is an OpenAPI/Swagger spec (NOT AsyncAPI or other formats).
+// Checks for openapi:/swagger: as ROOT-LEVEL keys.
 
-isolated function looksLikeSpec(string content) returns boolean {
+isolated function looksLikeOpenApiSpec(string content) returns boolean {
     string t = content.trim();
-    // Standard YAML starts
+
+    // ── Explicit rejections ──────────────────────────────────────────────────
+    // AsyncAPI specs — reject even if they contain the word "openapi" elsewhere
+    if t.startsWith("asyncapi:") { return false; }
+    if t.includes("\"asyncapi\":") {
+        // JSON AsyncAPI — check it appears near the start (root-level key)
+        string head = t.length() > 500 ? t.substring(0, 500) : t;
+        if head.includes("\"asyncapi\"") { return false; }
+    }
+    if t.includes("\nasyncapi:") { return false; }
+
+    // ── OpenAPI/Swagger YAML ─────────────────────────────────────────────────
+    // Root-level openapi: or swagger: key (YAML)
     if t.startsWith("openapi:") { return true; }
     if t.startsWith("swagger:") { return true; }
-    // JSON format — "openapi" or "swagger" key anywhere in the fetched window
-    if t.includes("\"openapi\"") { return true; }
-    if t.includes("\"swagger\"") { return true; }
-    // YAML field not at root (e.g. Stripe spec starts with components:)
     if t.includes("\nopenapi:") { return true; }
     if t.includes("\nswagger:") { return true; }
-    // Large alphabetically-ordered YAML specs (e.g. Stripe) start with components:
-    // and openapi: is too deep to appear within the first 100KB fetch window.
-    // components: is an OpenAPI 3.x-specific top-level keyword — safe heuristic.
+
+    // ── OpenAPI/Swagger JSON ─────────────────────────────────────────────────
+    // Root-level "openapi" or "swagger" key in JSON
+    if t.startsWith("{") {
+        string head = t.length() > 500 ? t.substring(0, 500) : t;
+        // Must be a root key: appears right after { or after another root key
+        if head.includes("\"openapi\"") { return true; }
+        if head.includes("\"swagger\"") { return true; }
+        // Large alphabetically-ordered JSON (e.g. Jira) starts with {"components":
+        // and "openapi" appears much later — check "components" as root key signal
+        if head.includes("\"components\"") { return true; }
+    }
+
+    // ── Large YAML specs (e.g. Stripe) start with components: ────────────────
     if t.startsWith("components:") { return true; }
-    // Large alphabetically-ordered JSON specs (e.g. Jira ~14MB) start with
-    // {"components":...} — the "openapi" key is far beyond the 100KB fetch window.
-    // Check the first 300 chars to confirm "components" is a root-level key.
-    string head = t.length() > 300 ? t.substring(0, 300) : t;
-    if t.startsWith("{") && head.includes("\"components\"") { return true; }
+
     return false;
 }
 
@@ -898,7 +813,6 @@ function httpGetBodyPartial(string url, int maxBytes) returns string|error {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
-    // Raw content files get 20s, docs pages get 8s
     decimal timeoutSecs = isRawContentUrl(url) ? 20 : 8;
 
     http:Client cl = check new (url, {

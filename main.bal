@@ -1,9 +1,6 @@
 // main.bal
 // Entry point — runs the agent for each connector in parallel batches.
 //
-// The agent always re-checks every connector, even if a URL already
-// exists in the output file. This ensures we always find the latest.
-//
 // Usage:
 //   ANTHROPIC_API_KEY=sk-...  bal run .
 //   ANTHROPIC_API_KEY=sk-...  FILTER=github bal run .
@@ -49,7 +46,7 @@ public function main() returns error? {
         int i = 1;
         foreach Connector c in connectors {
             string t = c.targetTitle is string ? string ` [${c.targetTitle ?: ""}]` : "";
-            io:println(string `  ${lp(i.toString(), 2)}. ${pad(c.name, 30)} ${c.docsUrl}${t}`);
+            io:println(string `  ${lp(i.toString(), 2)}. ${pad(c.name, 30)} ${c.sourceUrl}${t}`);
             i += 1;
         }
         io:println(BAR);
@@ -71,7 +68,6 @@ public function main() returns error? {
     io:println(BAR);
     io:println("");
 
-    // Load existing results to merge into
     ResultEntry[] existing = loadResults(outFile);
     map<int> existingIdx = {};
     int ei = 0;
@@ -85,7 +81,6 @@ public function main() returns error? {
     int found = 0;
     int notFound = 0;
 
-    // Process connectors in parallel batches of `concurrency`
     int batchStart = 0;
     while batchStart < connectors.length() {
         int batchEnd = batchStart + concurrency;
@@ -94,7 +89,6 @@ public function main() returns error? {
         Connector[] batch = connectors.slice(batchStart, batchEnd);
         io:println(string `--- batch ${batchStart + 1}–${batchEnd} of ${connectors.length()} ---`);
 
-        // Snapshot known URLs before launching — reads only, no concurrent mutation
         future<ResultEntry>[] futures = [];
         Connector[] batchConnectors = [];
         foreach Connector c in batch {
@@ -110,7 +104,6 @@ public function main() returns error? {
             batchConnectors.push(c);
         }
 
-        // Collect results — strands are all running; waiting in order is fine
         int fi = 0;
         foreach future<ResultEntry> f in futures {
             Connector bc = batchConnectors[fi];
@@ -121,11 +114,10 @@ public function main() returns error? {
             if waitResult is ResultEntry {
                 entry = waitResult;
             } else {
-                // Strand panicked — treat as not_found
                 log:printInfo(string `  [${bc.name}] strand error: ${waitResult.message()}`);
                 entry = {
                     name:           bc.name,
-                    docsUrl:        bc.docsUrl,
+                    sourceUrl:      bc.sourceUrl,
                     targetTitle:    bc.targetTitle,
                     specUrl:        (),
                     specRepo:       (),
@@ -152,7 +144,6 @@ public function main() returns error? {
             }
         }
 
-        // Save after every batch so partial progress is never lost
         check saveResults(results, outFile);
         io:println("");
         batchStart = batchEnd;
@@ -165,7 +156,7 @@ public function main() returns error? {
     io:println(BAR);
 }
 
-// ─── Per-connector work (runs in its own strand) ──────────────────────────────
+// ─── Per-connector work ───────────────────────────────────────────────────────
 
 function processConnector(
     Connector c,
@@ -186,23 +177,19 @@ function processConnector(
     SpecResult? finalResult = ();
 
     if knownUrl is string {
-        // ── Path A: We have a known URL ──────────────────────────────────────
-
         if !knownUrl.includes("raw.githubusercontent.com") {
-            // A1: Stable direct endpoint — LLM validates and checks for newer version
             log:printInfo(string `  [${c.name}] path=stable-version-check`);
-            SpecResult?|string stableResult = stepQuickVerify(knownUrl, knownRepo, c.docsUrl, apiKey);
+            SpecResult?|string stableResult = stepQuickVerify(knownUrl, knownRepo, c.sourceUrl, apiKey);
 
             if stableResult is SpecResult {
                 finalResult = stableResult;
             } else {
                 log:printInfo(string `  [${c.name}] stable URL dead or outdated — re-discovering`);
-                DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+                DiscoveryResult disc = stepDiscovery(c.sourceUrl, c.name, c.targetTitle, apiKey, knownRepo);
                 finalResult = stepContentVerify(disc);
             }
 
         } else {
-            // A2: GitHub raw URL — check for newer version in parent folder
             log:printInfo(string `  [${c.name}] path=github-version-check`);
             SpecResult?|string checkResult = stepGithubVersionCheck(knownUrl, knownRepo, apiKey);
 
@@ -210,15 +197,14 @@ function processConnector(
                 finalResult = checkResult;
             } else {
                 log:printInfo(string `  [${c.name}] GitHub check failed — re-discovering`);
-                DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+                DiscoveryResult disc = stepDiscovery(c.sourceUrl, c.name, c.targetTitle, apiKey, knownRepo);
                 finalResult = stepContentVerify(disc);
             }
         }
 
     } else {
-        // ── Path B: No known URL — full discovery ────────────────────────────
         log:printInfo(string `  [${c.name}] path=full-discovery`);
-        DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+        DiscoveryResult disc = stepDiscovery(c.sourceUrl, c.name, c.targetTitle, apiKey, knownRepo);
         finalResult = stepContentVerify(disc);
     }
 
@@ -230,7 +216,7 @@ function processConnector(
         io:println(string `     format=${finalResult.format} | ${elapsed}s`);
         return {
             name:           c.name,
-            docsUrl:        c.docsUrl,
+            sourceUrl:      c.sourceUrl,
             targetTitle:    c.targetTitle,
             specUrl:        finalResult.specUrl,
             specRepo:       finalResult.specRepo,
@@ -245,7 +231,7 @@ function processConnector(
         io:println(string `[done ] ${label} => NOT FOUND [${elapsed}s]`);
         return {
             name:           c.name,
-            docsUrl:        c.docsUrl,
+            sourceUrl:      c.sourceUrl,
             targetTitle:    c.targetTitle,
             specUrl:        (),
             specRepo:       (),
