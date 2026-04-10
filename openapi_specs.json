@@ -52,68 +52,16 @@
         "elapsedSeconds": 17.2
     },
     {
-        "name": "Zendesk",
-        "docsUrl": "https://developer.zendesk.com/api-reference/",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/zendesk/sunshine-conversations-api-spec/master/openapi.yaml",
-        "specRepo": "zendesk/sunshine-conversations-api-spec",
-        "title": null,
-        "apiVersion": null,
-        "format": "yaml",
-        "status": "found",
-        "checkedAt": "2026-04-09T05:12:01.437927Z",
-        "elapsedSeconds": 9.8
-    },
-    {
         "name": "Zoom Meetings",
         "docsUrl": "https://developers.zoom.us/docs/api/meetings/",
         "targetTitle": null,
-        "specUrl": "https://developers.zoom.us/api-hub/meetings/methods/endpoints.json",
-        "specRepo": "zoom-us/zoom-api-descriptions",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-09T05:12:24.581701Z",
-        "elapsedSeconds": 32.9
-    },
-    {
-        "name": "Slack",
-        "docsUrl": "https://github.com/slackapi/slack-api-specs",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/slackapi/slack-api-specs/master/events-api/slack_events_api_async_v1.json",
-        "specRepo": "slackapi/slack-api-specs",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-09T05:11:04.076867Z",
-        "elapsedSeconds": 20.8
-    },
-    {
-        "name": "Smartsheet",
-        "docsUrl": "https://developers.smartsheet.com/api/smartsheet/introduction",
-        "targetTitle": null,
-        "specUrl": null,
+        "specUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/zoom.us/2.0.0/openapi.yaml",
         "specRepo": null,
-        "title": null,
-        "apiVersion": null,
-        "format": null,
-        "status": "not_found",
-        "checkedAt": "2026-04-09T05:11:51.636210Z",
-        "elapsedSeconds": 68.3
-    },
-    {
-        "name": "Twitter",
-        "docsUrl": "https://github.com/xdevplatform",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/twitter.com/current/2.62/openapi.yaml",
-        "specRepo": "APIs-guru/openapi-directory",
         "title": null,
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-09T05:12:30.697730Z",
-        "elapsedSeconds": 39.0
+        "checkedAt": "2026-04-09T05:12:24.581701Z",
+        "elapsedSeconds": 32.9
     }
 ]
