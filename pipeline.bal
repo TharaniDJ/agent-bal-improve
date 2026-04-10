@@ -135,11 +135,11 @@ Return STABLE_CHECK_RESULT.`;
 
     while turn < maxTurns {
         turn += 1;
-        log:printInfo(string `  [step1b turn ${turn}]`);
+        log:printInfo(string `  [step1b turn ${turn}/${maxTurns}]`);
 
         json|error resp = callClaude(anthropicKey, model, messages, STABLE_CHECK_SYSTEM_PROMPT);
         if resp is error {
-            log:printInfo(string `  [step1b error] ${resp.message()}`);
+            log:printWarn(string `  [step1b] Claude API error: ${resp.message()}`);
             return ();
         }
 
@@ -209,9 +209,11 @@ Return STABLE_CHECK_RESULT.`;
             continue;
         }
 
+        log:printWarn(string `  [step1b] unexpected stop_reason='${stopReason}' at turn ${turn} — aborting`);
         break;
     }
 
+    log:printWarn(string `  [step1b] exhausted ${maxTurns} turns without a result`);
     return ();
 }
 
@@ -238,12 +240,12 @@ function parseStableCheckResult(string text, string fallbackUrl, string? fallbac
     if url.length() == 0 { url = fallbackUrl; }
 
     if !headOk(url) {
-        log:printInfo(string `  [step1b] returned URL failed HEAD check: ${url}`);
+        log:printWarn(string `  [step1b] returned URL failed HEAD check: ${url}`);
         return ();
     }
 
     string fmt = url.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-    log:printInfo(string `  [step1b] confirmed: ${url}`);
+    log:printInfo(string `  [step1b] confirmed valid: ${url}`);
     return {
         specUrl: url,
         specRepo: repo.length() > 0 ? repo : fallbackRepo,
@@ -332,11 +334,11 @@ Known URL: ${knownSpecUrl}${repoContext}${repoForContentsApi}
 
     while turn < maxTurns {
         turn += 1;
-        log:printInfo(string `  [step2 turn ${turn}]`);
+        log:printInfo(string `  [step2 turn ${turn}/${maxTurns}]`);
 
         json|error resp = callClaude(anthropicKey, model, messages, GITHUB_CHECK_SYSTEM_PROMPT);
         if resp is error {
-            log:printInfo(string `  [step2 error] ${resp.message()}`);
+            log:printWarn(string `  [step2] Claude API error: ${resp.message()}`);
             return ();
         }
 
@@ -406,9 +408,11 @@ Known URL: ${knownSpecUrl}${repoContext}${repoForContentsApi}
             continue;
         }
 
+        log:printWarn(string `  [step2] unexpected stop_reason='${stopReason}' at turn ${turn} — aborting`);
         break;
     }
 
+    log:printWarn(string `  [step2] exhausted ${maxTurns} turns without a result`);
     return ();
 }
 
@@ -435,12 +439,12 @@ function parseGithubCheckResult(string text, string? fallbackRepo) returns SpecR
     if url.length() == 0 { return (); }
 
     if !headOk(url) {
-        log:printInfo(string `  [step2] returned URL failed HEAD check: ${url}`);
+        log:printWarn(string `  [step2] returned URL failed HEAD check: ${url}`);
         return ();
     }
 
     string fmt = url.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-    log:printInfo(string `  [step2] confirmed: ${url}`);
+    log:printInfo(string `  [step2] confirmed valid: ${url}`);
     return {
         specUrl: url,
         specRepo: repo.length() > 0 ? repo : fallbackRepo,
@@ -609,7 +613,7 @@ public function stepDiscovery(
     string? knownSpecRepo
 ) returns DiscoveryResult {
 
-    log:printInfo("  [step3] starting discovery");
+    log:printInfo(string `  [step3] starting discovery for: ${apiName}`);
 
     string targetNote = targetTitle is string
         ? string `\nTarget: find ONLY the spec titled '${targetTitle}'.`
@@ -641,11 +645,11 @@ Return DISCOVERY_RESULT with raw download URLs only. List official vendor URLs b
 
     while turn < maxTurns {
         turn += 1;
-        log:printInfo(string `  [step3 turn ${turn}]`);
+        log:printInfo(string `  [step3 turn ${turn}/${maxTurns}]`);
 
         json|error resp = callClaude(anthropicKey, model, messages, DISCOVERY_SYSTEM_PROMPT);
         if resp is error {
-            log:printInfo(string `  [step3 error] ${resp.message()}`);
+            log:printWarn(string `  [step3] Claude API error: ${resp.message()}`);
             break;
         }
 
@@ -723,9 +727,11 @@ Return DISCOVERY_RESULT with raw download URLs only. List official vendor URLs b
             continue;
         }
 
+        log:printWarn(string `  [step3] unexpected stop_reason='${stopReason}' at turn ${turn} — aborting`);
         break;
     }
 
+    log:printWarn(string `  [step3] exhausted ${maxTurns} turns without a result`);
     return {candidateUrls: [], specRepo: (), discoveryMethod: "none"};
 }
 
@@ -826,12 +832,12 @@ public function stepContentVerify(
         // For normal-sized files, fetch 100KB and verify content
         string|error body = httpGetBodyPartial(url, 100000);
         if body is error {
-            log:printInfo("  [step4] content fetch failed — skipping");
+            log:printWarn(string `  [step4] content fetch failed for ${url}: ${body.message()}`);
             continue;
         }
 
         if !looksLikeSpec(body) {
-            log:printInfo("  [step4] content is not a spec — skipping");
+            log:printWarn(string `  [step4] content at ${url} is not a valid OpenAPI/Swagger spec — skipping`);
             continue;
         }
 
@@ -846,7 +852,7 @@ public function stepContentVerify(
         };
     }
 
-    log:printInfo("  [step4] all candidates failed");
+    log:printWarn(string `  [step4] all ${discovery.candidateUrls.length()} candidate(s) failed verification`);
     return ();
 }
 

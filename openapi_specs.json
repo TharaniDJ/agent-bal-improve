@@ -89,5 +89,44 @@
         "status": "found",
         "checkedAt": "2026-04-10T04:30:04.213571Z",
         "elapsedSeconds": 42.3
+    },
+    {
+        "name": "SCIM",
+        "docsUrl": "https://wso2.com/asgardeo/docs/apis/scim2/",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/wso2/docs-is/master/en/asgardeo/docs/apis/restapis/scim2-users.yaml",
+        "specRepo": "wso2/docs-is",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-10T05:40:04.012937Z",
+        "elapsedSeconds": 52.7
+    },
+    {
+        "name": "Slack",
+        "docsUrl": "https://github.com/slackapi/slack-api-specs",
+        "targetTitle": "Slack Web API",
+        "specUrl": null,
+        "specRepo": null,
+        "title": null,
+        "apiVersion": null,
+        "format": null,
+        "status": "not_found",
+        "checkedAt": "2026-04-10T05:40:22.175196Z",
+        "elapsedSeconds": 18.1
+    },
+    {
+        "name": "Smartsheet",
+        "docsUrl": "https://developers.smartsheet.com/api/smartsheet/introduction",
+        "targetTitle": null,
+        "specUrl": "https://developers.smartsheet.com/_spec/api/smartsheet/openapi.yaml",
+        "specRepo": "smartsheet/smartsheet-openapi",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-10T05:41:48.201446Z",
+        "elapsedSeconds": 86.0
     }
 ]

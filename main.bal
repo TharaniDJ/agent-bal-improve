@@ -1,14 +1,14 @@
 // main.bal
-// Entry point — runs the agent for each connector in parallel batches.
+// Entry point — runs the agent for each connector SEQUENTIALLY, one at a time.
 //
-// The agent always re-checks every connector, even if a URL already
-// exists in the output file. This ensures we always find the latest.
+// Sequential mode makes logs easy to read and failures easy to spot.
+// With 500+ connectors the full run takes longer, but you get clean per-connector
+// output and the file is saved after every single connector so no progress is lost.
 //
 // Usage:
 //   ANTHROPIC_API_KEY=sk-...  bal run .
 //   ANTHROPIC_API_KEY=sk-...  FILTER=github bal run .
 //   ANTHROPIC_API_KEY=sk-...  GITHUB_TOKEN=ghp_...  bal run .
-//   ANTHROPIC_API_KEY=sk-...  CONCURRENCY=10 bal run .
 //   DRY_RUN=true bal run .
 
 import ballerina/io;
@@ -23,25 +23,18 @@ const string BAR  = "===========================================================
 const string DASH = "----------------------------------------------------------------";
 
 public function main() returns error? {
-    string apiKey      = os:getEnv("ANTHROPIC_API_KEY");
-    string filterStr   = os:getEnv("FILTER").toLowerAscii();
-    boolean dryRun     = os:getEnv("DRY_RUN").toLowerAscii() == "true";
-    string outFile     = os:getEnv("OUTPUT").length() > 0 ? os:getEnv("OUTPUT") : outputFile;
-    string ghToken     = os:getEnv("GITHUB_TOKEN");
-    string model       = os:getEnv("CLAUDE_MODEL").length() > 0 ? os:getEnv("CLAUDE_MODEL") : "claude-sonnet-4-6";
-    int    concurrency = 5;
-
-    string concStr = os:getEnv("CONCURRENCY");
-    if concStr.length() > 0 {
-        int|error parsed = int:fromString(concStr);
-        if parsed is int && parsed > 0 { concurrency = parsed; }
-    }
+    string apiKey    = os:getEnv("ANTHROPIC_API_KEY");
+    string filterStr = os:getEnv("FILTER").toLowerAscii();
+    boolean dryRun   = os:getEnv("DRY_RUN").toLowerAscii() == "true";
+    string outFile   = os:getEnv("OUTPUT").length() > 0 ? os:getEnv("OUTPUT") : outputFile;
+    string ghToken   = os:getEnv("GITHUB_TOKEN");
+    string model     = os:getEnv("CLAUDE_MODEL").length() > 0 ? os:getEnv("CLAUDE_MODEL") : "claude-sonnet-4-6";
 
     Connector[] connectors = filterStr.length() > 0
         ? ALL_CONNECTORS.filter(c => c.name.toLowerAscii().includes(filterStr))
         : ALL_CONNECTORS;
 
-    // Dry run
+    // ── Dry run ───────────────────────────────────────────────────────────────
     if dryRun {
         io:println(BAR);
         io:println(string `  OpenAPI Spec Finder — ${connectors.length()} connector(s)`);
@@ -49,7 +42,7 @@ public function main() returns error? {
         int i = 1;
         foreach Connector c in connectors {
             string t = c.targetTitle is string ? string ` [${c.targetTitle ?: ""}]` : "";
-            io:println(string `  ${lp(i.toString(), 2)}. ${pad(c.name, 30)} ${c.docsUrl}${t}`);
+            io:println(string `  ${lp(i.toString(), 3)}. ${pad(c.name, 32)} ${c.docsUrl}${t}`);
             i += 1;
         }
         io:println(BAR);
@@ -63,15 +56,15 @@ public function main() returns error? {
 
     io:println(BAR);
     io:println("  OpenAPI Spec Finder");
-    io:println(string `  Model       : ${model}`);
-    io:println(string `  GitHub      : ${ghToken.length() > 0 ? "token set" : "no token (rate limit: 60/hr)"}`);
-    io:println(string `  Output      : ${outFile}`);
-    io:println(string `  APIs        : ${connectors.length()}`);
-    io:println(string `  Concurrency : ${concurrency}`);
+    io:println(string `  Model  : ${model}`);
+    io:println(string `  GitHub : ${ghToken.length() > 0 ? "token set" : "no token (rate limit: 60/hr)"}`);
+    io:println(string `  Output : ${outFile}`);
+    io:println(string `  APIs   : ${connectors.length()}`);
+    io:println(string `  Mode   : sequential (one at a time)`);
     io:println(BAR);
     io:println("");
 
-    // Load existing results to merge into
+    // ── Load existing results to merge into ───────────────────────────────────
     ResultEntry[] existing = loadResults(outFile);
     map<int> existingIdx = {};
     int ei = 0;
@@ -84,103 +77,81 @@ public function main() returns error? {
     time:Utc runStart = time:utcNow();
     int found = 0;
     int notFound = 0;
+    int total = connectors.length();
 
-    // Process connectors in parallel batches of `concurrency`
-    int batchStart = 0;
-    while batchStart < connectors.length() {
-        int batchEnd = batchStart + concurrency;
-        if batchEnd > connectors.length() { batchEnd = connectors.length(); }
+    // ── Sequential loop — one connector at a time ─────────────────────────────
+    int idx = 0;
+    foreach Connector c in connectors {
+        idx += 1;
+        string progress = string `[${idx}/${total}]`;
 
-        Connector[] batch = connectors.slice(batchStart, batchEnd);
-        io:println(string `--- batch ${batchStart + 1}–${batchEnd} of ${connectors.length()} ---`);
-
-        // Snapshot known URLs before launching — reads only, no concurrent mutation
-        future<ResultEntry>[] futures = [];
-        Connector[] batchConnectors = [];
-        foreach Connector c in batch {
-            string? knownUrl = ();
-            string? knownRepo = ();
-            if existingIdx.hasKey(c.name) {
-                ResultEntry prev = results[existingIdx.get(c.name)];
-                knownUrl  = prev.specUrl;
-                knownRepo = prev.specRepo;
-            }
-            future<ResultEntry> f = start processConnector(c, knownUrl, knownRepo, apiKey);
-            futures.push(f);
-            batchConnectors.push(c);
+        string? knownUrl  = ();
+        string? knownRepo = ();
+        if existingIdx.hasKey(c.name) {
+            ResultEntry prev = results[existingIdx.get(c.name)];
+            knownUrl  = prev.specUrl;
+            knownRepo = prev.specRepo;
         }
 
-        // Collect results — strands are all running; waiting in order is fine
-        int fi = 0;
-        foreach future<ResultEntry> f in futures {
-            Connector bc = batchConnectors[fi];
-            fi += 1;
+        io:println(DASH);
+        string label = c.targetTitle is string
+            ? string `${c.name} / ${c.targetTitle ?: ""}`
+            : c.name;
 
-            ResultEntry|error waitResult = wait f;
-            ResultEntry entry;
-            if waitResult is ResultEntry {
-                entry = waitResult;
-            } else {
-                // Strand panicked — treat as not_found
-                log:printInfo(string `  [${bc.name}] strand error: ${waitResult.message()}`);
-                entry = {
-                    name:           bc.name,
-                    docsUrl:        bc.docsUrl,
-                    targetTitle:    bc.targetTitle,
-                    specUrl:        (),
-                    specRepo:       (),
-                    title:          (),
-                    apiVersion:     (),
-                    format:         (),
-                    status:         "not_found",
-                    checkedAt:      time:utcToString(time:utcNow()),
-                    elapsedSeconds: 0d
-                };
-            }
-
-            if entry.status == "found" {
-                found += 1;
-            } else {
-                notFound += 1;
-            }
-
-            if existingIdx.hasKey(entry.name) {
-                results[existingIdx.get(entry.name)] = entry;
-            } else {
-                existingIdx[entry.name] = results.length();
-                results.push(entry);
-            }
+        if knownUrl is string {
+            io:println(string `${progress} START  ${label}`);
+            log:printInfo(string `${progress} known url: ${knownUrl}`);
+        } else {
+            io:println(string `${progress} START  ${label}  (no previous URL)`);
         }
 
-        // Save after every batch so partial progress is never lost
-        check saveResults(results, outFile);
+        ResultEntry entry = processConnector(c, knownUrl, knownRepo, apiKey, progress);
+
+        if entry.status == "found" {
+            found += 1;
+            io:println(string `${progress} PASS   ${label}`);
+            io:println(string `         => ${entry.specUrl ?: ""}`);
+            io:println(string `            format=${entry.format ?: "?"} | ${entry.elapsedSeconds}s`);
+        } else {
+            notFound += 1;
+            io:println(string `${progress} FAIL   ${label}  [${entry.elapsedSeconds}s]`);
+            log:printWarn(string `${progress} NOT FOUND: ${label} | docs=${c.docsUrl}`);
+        }
+
+        // Merge into results array
+        if existingIdx.hasKey(entry.name) {
+            results[existingIdx.get(entry.name)] = entry;
+        } else {
+            existingIdx[entry.name] = results.length();
+            results.push(entry);
+        }
+
+        // Save after every single connector — no progress is lost
+        error? saveErr = saveResults(results, outFile);
+        if saveErr is error {
+            log:printError(string `${progress} save failed: ${saveErr.message()}`);
+        }
+
         io:println("");
-        batchStart = batchEnd;
     }
 
-    decimal total = rd(time:utcDiffSeconds(time:utcNow(), runStart));
+    decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), runStart));
     io:println(BAR);
-    io:println(string `  Done in ${<int>total}s  |  found=${found}  not_found=${notFound}`);
+    io:println(string `  Done in ${<int>elapsed}s`);
+    io:println(string `  found=${found}  not_found=${notFound}  total=${total}`);
     io:println(string `  Saved to ${outFile}`);
     io:println(BAR);
 }
 
-// ─── Per-connector work (runs in its own strand) ──────────────────────────────
+// ─── Per-connector work ───────────────────────────────────────────────────────
 
 function processConnector(
     Connector c,
     string? knownUrl,
     string? knownRepo,
-    string apiKey
+    string apiKey,
+    string progress    // e.g. "[3/500]" — threaded through for log prefixing
 ) returns ResultEntry {
-
-    string label = c.targetTitle is string ? string `${c.name} / ${c.targetTitle ?: ""}` : c.name;
-
-    if knownUrl is string {
-        io:println(string `[start] ${label}  (prev: ${knownUrl})`);
-    } else {
-        io:println(string `[start] ${label}`);
-    }
 
     time:Utc t0 = time:utcNow();
     SpecResult? finalResult = ();
@@ -190,44 +161,56 @@ function processConnector(
 
         if !knownUrl.includes("raw.githubusercontent.com") {
             // A1: Stable direct endpoint — LLM validates and checks for newer version
-            log:printInfo(string `  [${c.name}] path=stable-version-check`);
+            log:printInfo(string `${progress} path=stable-version-check`);
             SpecResult?|string stableResult = stepQuickVerify(knownUrl, knownRepo, c.docsUrl, apiKey);
 
             if stableResult is SpecResult {
+                log:printInfo(string `${progress} stable-version-check => confirmed`);
                 finalResult = stableResult;
-            } else {
-                log:printInfo(string `  [${c.name}] stable URL dead or outdated — re-discovering`);
+            } else if stableResult is string {
+                log:printWarn(string `${progress} stable URL is DEAD — re-discovering`);
                 DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+                log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
+                finalResult = stepContentVerify(disc);
+            } else {
+                log:printWarn(string `${progress} stable-version-check returned nothing — re-discovering`);
+                DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+                log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
                 finalResult = stepContentVerify(disc);
             }
 
         } else {
             // A2: GitHub raw URL — check for newer version in parent folder
-            log:printInfo(string `  [${c.name}] path=github-version-check`);
+            log:printInfo(string `${progress} path=github-version-check`);
             SpecResult?|string checkResult = stepGithubVersionCheck(knownUrl, knownRepo, apiKey);
 
             if checkResult is SpecResult {
+                log:printInfo(string `${progress} github-version-check => confirmed`);
                 finalResult = checkResult;
-            } else {
-                log:printInfo(string `  [${c.name}] GitHub check failed — re-discovering`);
+            } else if checkResult is string {
+                log:printWarn(string `${progress} GitHub URL is DEAD — re-discovering`);
                 DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+                log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
+                finalResult = stepContentVerify(disc);
+            } else {
+                log:printWarn(string `${progress} github-version-check returned nothing — re-discovering`);
+                DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+                log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
                 finalResult = stepContentVerify(disc);
             }
         }
 
     } else {
         // ── Path B: No known URL — full discovery ────────────────────────────
-        log:printInfo(string `  [${c.name}] path=full-discovery`);
+        log:printInfo(string `${progress} path=full-discovery`);
         DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
+        log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
         finalResult = stepContentVerify(disc);
     }
 
     decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
 
     if finalResult is SpecResult {
-        io:println(string `[done ] ${label}`);
-        io:println(string `  => ${finalResult.specUrl}`);
-        io:println(string `     format=${finalResult.format} | ${elapsed}s`);
         return {
             name:           c.name,
             docsUrl:        c.docsUrl,
@@ -242,7 +225,6 @@ function processConnector(
             elapsedSeconds: elapsed
         };
     } else {
-        io:println(string `[done ] ${label} => NOT FOUND [${elapsed}s]`);
         return {
             name:           c.name,
             docsUrl:        c.docsUrl,
