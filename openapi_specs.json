@@ -100,8 +100,8 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-10T05:40:04.012937Z",
-        "elapsedSeconds": 52.7
+        "checkedAt": "2026-04-10T05:47:02.848922Z",
+        "elapsedSeconds": 59.9
     },
     {
         "name": "Slack",
@@ -113,8 +113,8 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-10T05:40:22.175196Z",
-        "elapsedSeconds": 18.1
+        "checkedAt": "2026-04-10T05:47:20.530562Z",
+        "elapsedSeconds": 17.7
     },
     {
         "name": "Smartsheet",
@@ -126,7 +126,72 @@
         "apiVersion": null,
         "format": "yaml",
         "status": "found",
-        "checkedAt": "2026-04-10T05:41:48.201446Z",
-        "elapsedSeconds": 86.0
+        "checkedAt": "2026-04-10T05:47:48.137321Z",
+        "elapsedSeconds": 27.6
+    },
+    {
+        "name": "Trello",
+        "docsUrl": "https://developer.atlassian.com/cloud/trello/rest/",
+        "targetTitle": null,
+        "specUrl": "https://dac-static.atlassian.com/cloud/trello/swagger.v3.json",
+        "specRepo": "N/A",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-10T05:48:03.869648Z",
+        "elapsedSeconds": 15.7
+    },
+    {
+        "name": "Twilio",
+        "docsUrl": "https://www.twilio.com/docs/usage/api",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/twilio/twilio-oai/main/spec/yaml/twilio_api_v2010.yaml",
+        "specRepo": "twilio/twilio-oai",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-10T05:48:36.418892Z",
+        "elapsedSeconds": 32.5
+    },
+    {
+        "name": "Twitter",
+        "docsUrl": "https://github.com/xdevplatform",
+        "targetTitle": null,
+        "specUrl": "https://api.twitter.com/2/openapi.json",
+        "specRepo": "xdevplatform/xdk",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-10T05:49:02.178577Z",
+        "elapsedSeconds": 25.8
+    },
+    {
+        "name": "Zendesk",
+        "docsUrl": "https://developer.zendesk.com/api-reference/ticketing/introduction/",
+        "targetTitle": "Ticketing API",
+        "specUrl": null,
+        "specRepo": null,
+        "title": null,
+        "apiVersion": null,
+        "format": null,
+        "status": "not_found",
+        "checkedAt": "2026-04-10T05:49:59.039907Z",
+        "elapsedSeconds": 56.9
+    },
+    {
+        "name": "Zoom Meetings",
+        "docsUrl": "https://developers.zoom.us/docs/api/meetings/",
+        "targetTitle": null,
+        "specUrl": "https://developers.zoom.us/api-hub/meetings/methods/endpoints.json",
+        "specRepo": "zoom-us/zoom-api-description",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-10T05:50:26.496698Z",
+        "elapsedSeconds": 27.4
     }
 ]
