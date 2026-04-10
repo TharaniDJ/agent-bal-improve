@@ -10,6 +10,12 @@
 //   ANTHROPIC_API_KEY=sk-...  FILTER=github bal run .
 //   ANTHROPIC_API_KEY=sk-...  GITHUB_TOKEN=ghp_...  bal run .
 //   DRY_RUN=true bal run .
+//
+// Debug mode (verbose logs for every HTTP call, fetch timing, Claude turns):
+//   bal run . --log-level=DEBUG
+//
+// The debug flag enables log:printDebug() calls throughout agent.bal and
+// pipeline.bal so you can trace exactly where a connector hangs or fails.
 
 import ballerina/io;
 import ballerina/log;
@@ -61,6 +67,7 @@ public function main() returns error? {
     io:println(string `  Output : ${outFile}`);
     io:println(string `  APIs   : ${connectors.length()}`);
     io:println(string `  Mode   : sequential (one at a time)`);
+    io:println(string `  Debug  : run with --log-level=DEBUG for verbose fetch/timing logs`);
     io:println(BAR);
     io:println("");
 
@@ -182,7 +189,7 @@ function processConnector(
         } else {
             // A2: GitHub raw URL — check for newer version in parent folder
             log:printInfo(string `${progress} path=github-version-check`);
-            SpecResult?|string checkResult = stepGithubVersionCheck(knownUrl, knownRepo, apiKey);
+            SpecResult?|string checkResult = stepGithubVersionCheck(knownUrl, knownRepo, c.docsUrl, apiKey);
 
             if checkResult is SpecResult {
                 log:printInfo(string `${progress} github-version-check => confirmed`);
@@ -274,6 +281,3 @@ isolated function lp(string s, int w) returns string {
     return r + s;
 }
 
-isolated function rd(decimal d) returns decimal {
-    return <decimal>(<int>(d * 10d)) / 10d;
-}

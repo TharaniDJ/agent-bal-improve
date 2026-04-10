@@ -1,0 +1,79 @@
+// openapi_validator.bal
+// Ballerina Java interoperability bindings for OpenAPISpecValidator.
+//
+// This module provides a more authoritative spec validation than the keyword-
+// based looksLikeSpec() check in pipeline.bal.  It uses the swagger-parser
+// library (supports OAS 3.x and Swagger 2.0) via Ballerina's Java interop.
+//
+// ── Setup (one-time) ──────────────────────────────────────────────────────────
+//   1. Build the fat JAR:
+//        cd java-validator && ./build.sh
+//      This creates libs/openapi-validator.jar
+//   2. Uncomment the [[platform.java21.dependency]] block in Ballerina.toml
+//   3. Run as normal:  bal run .
+//
+// ── Without setup ────────────────────────────────────────────────────────────
+//   The stepContentVerify() in pipeline.bal uses looksLikeSpec() (keyword check)
+//   as the primary validator and falls back to Claude when that check fails.
+//   The Java validator adds a third, more accurate layer.
+//
+// ── How it integrates ────────────────────────────────────────────────────────
+//   Call javaValidateSpec(content) and check the result:
+//     [true,  "3.0.3"]  → valid OAS3 spec
+//     [true,  "2.0"  ]  → valid Swagger 2.0 spec
+//     [false, "reason"]  → not a valid spec
+//
+//   Returns [false, "java-validator-unavailable"] if the JAR is not on the
+//   classpath, so callers can fall back gracefully.
+
+import ballerina/jballerina.java;
+import ballerina/log;
+
+// ─── Java method binding ──────────────────────────────────────────────────────
+
+// Binds to:
+//   org.ballerinax.openapi.OpenAPISpecValidator.validate(String content)
+// Returns: "valid:<version>" or "invalid:<reason>"
+function javaValidateInternal(handle content) returns handle = @java:Method {
+    'class: "org.ballerinax.openapi.OpenAPISpecValidator",
+    name: "validate",
+    paramTypes: ["java.lang.String"]
+} external;
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+// Validates spec content using the Java swagger-parser library.
+// Returns [isValid, detail] where detail is the OpenAPI version (e.g. "3.0.3")
+// on success, or the rejection reason on failure.
+//
+// Falls back to [false, "java-validator-unavailable"] if the JAR is absent.
+public function javaValidateSpec(string content) returns [boolean, string] {
+    do {
+        handle resultHandle = javaValidateInternal(java:fromString(content));
+        string? resultStr = java:toString(resultHandle);
+        string res = resultStr is () ? "invalid:null" : resultStr;
+        log:printDebug(string `  [java-validator] result: ${res.substring(0, res.length() > 120 ? 120 : res.length())}`);
+        if res.startsWith("valid:") {
+            return [true, res.substring(6)];
+        }
+        string reason = res.startsWith("invalid:") ? res.substring(8) : res;
+        return [false, reason];
+    } on fail error e {
+        // ClassNotFoundException or similar — JAR not on classpath
+        log:printDebug(string `  [java-validator] unavailable (JAR not built yet): ${e.message()}`);
+        return [false, "java-validator-unavailable"];
+    }
+}
+
+// Convenience wrapper: returns true only if Java validator confirms this is a spec.
+// Returns false AND logs a debug message if the validator is unavailable —
+// callers should treat "unavailable" the same as "not checked" and proceed to
+// the next validation layer (looksLikeSpec → Claude fallback).
+public function isValidSpecJava(string content) returns boolean {
+    [boolean, string] [ok, detail] = javaValidateSpec(content);
+    if detail == "java-validator-unavailable" {
+        log:printDebug("  [java-validator] skipped — run java-validator/build.sh to enable");
+        return false;
+    }
+    return ok;
+}

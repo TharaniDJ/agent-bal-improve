@@ -1,17 +1,16 @@
 // pipeline.bal
-// Three-step chained pipeline for finding and verifying OpenAPI specs.
+// Four-step chained pipeline for finding and verifying OpenAPI specs.
 //
-// Step 1: stepQuickVerify         — pure HTTP, stable/direct endpoints only
-// Step 2: stepGithubVersionCheck  — Claude, GitHub-hosted specs with known URL
-// Step 3: stepDiscovery           — Claude, find candidates from scratch
-// Step 4: stepContentVerify       — pure HTTP, confirm discovered candidates
+// Step 1 : stepQuickVerify          — pure HTTP, stable/direct endpoints only
+// Step 2 : stepGithubVersionCheck   — Claude, GitHub-hosted specs with known URL
+// Step 3 : stepDiscovery            — Claude, find candidates from scratch
+// Step 4 : stepContentVerify        — HTTP, confirm candidates via looksLikeSpec
 //
-// SPA handling is transparent: httpGetBody() in agent.bal detects thin HTML
-// responses and retries via the Browserless cloud API automatically.
+// Enable debug mode: bal run --log-level=DEBUG
 
-import ballerina/http;
 import ballerina/log;
 import ballerina/os;
+import ballerina/time;
 
 // ─── STEP 1: Quick Verify (stable/direct URLs only) ──────────────────────────
 
@@ -111,6 +110,7 @@ public function stepStableVersionCheck(
 ) returns SpecResult?|string {
 
     log:printInfo(string `  [step1b] stable version check: ${knownSpecUrl}`);
+    log:printDebug(string `  [step1b:debug] docsUrl=${docsUrl} knownRepo=${knownSpecRepo ?: "none"}`);
 
     string userMsg = string `Verify this OpenAPI spec URL and check if it is still the latest stable version.
 
@@ -136,6 +136,7 @@ Return STABLE_CHECK_RESULT.`;
     while turn < maxTurns {
         turn += 1;
         log:printInfo(string `  [step1b turn ${turn}/${maxTurns}]`);
+        log:printDebug(string `  [step1b:debug] turn ${turn} — calling Claude`);
 
         json|error resp = callClaude(anthropicKey, model, messages, STABLE_CHECK_SYSTEM_PROMPT);
         if resp is error {
@@ -166,6 +167,8 @@ Return STABLE_CHECK_RESULT.`;
             }
         }
 
+        log:printDebug(string `  [step1b:debug] stop_reason=${stopReason} textLen=${text.length()} toolCalls=${toolBlocks.length()}`);
+
         if text.length() > 0 {
             int preview = text.length() > 400 ? 400 : text.length();
             log:printInfo(string `  [step1b claude] ${text.substring(0, preview)}`);
@@ -188,7 +191,9 @@ Return STABLE_CHECK_RESULT.`;
                     if inp is map<json> {
                         json? urlVal = inp["url"];
                         if urlVal is string {
+                            log:printDebug(string `  [step1b:debug] tool call: fetch_page url=${urlVal}`);
                             if fetched.hasKey(urlVal) {
+                                log:printDebug("  [step1b:debug] URL already fetched — returning cached error");
                                 output = "{\"error\":\"already fetched\"}";
                             } else {
                                 fetched[urlVal] = true;
@@ -228,30 +233,32 @@ function parseStableCheckResult(string text, string fallbackUrl, string? fallbac
     }
 
     string[] lines = splitLines(after);
-    string url = "";
+    string resultUrl = "";
     string repo = fallbackRepo ?: "";
 
     foreach string line in lines {
         string t = line.trim();
-        if t.startsWith("URL:") { url = t.substring(4).trim(); }
+        if t.startsWith("URL:") { resultUrl = t.substring(4).trim(); }
         else if t.startsWith("REPO:") { repo = t.substring(5).trim(); }
     }
 
-    if url.length() == 0 { url = fallbackUrl; }
+    if resultUrl.length() == 0 { resultUrl = fallbackUrl; }
 
-    if !headOk(url) {
-        log:printWarn(string `  [step1b] returned URL failed HEAD check: ${url}`);
+    log:printDebug(string `  [step1b:debug] parsed result url=${resultUrl} repo=${repo}`);
+
+    if !headOk(resultUrl) {
+        log:printWarn(string `  [step1b] returned URL failed HEAD check: ${resultUrl}`);
         return ();
     }
 
-    string fmt = url.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-    log:printInfo(string `  [step1b] confirmed valid: ${url}`);
+    string fmt = resultUrl.toLowerAscii().endsWith(".json") ? "json" : "yaml";
+    log:printInfo(string `  [step1b] confirmed valid: ${resultUrl}`);
     return {
-        specUrl: url,
-        specRepo: repo.length() > 0 ? repo : fallbackRepo,
-        title: (),
+        specUrl:    resultUrl,
+        specRepo:   repo.length() > 0 ? repo : fallbackRepo,
+        title:      (),
         apiVersion: (),
-        format: fmt
+        format:     fmt
     };
 }
 
@@ -266,12 +273,12 @@ const string GITHUB_CHECK_SYSTEM_PROMPT =
     "Returns a JSON array of {name, type, path, download_url} entries.\n" +
     "\n" +
     "Rules:\n" +
-    "  - Maximum 5 fetch_page calls\n" +
+    "  - Maximum 6 fetch_page calls\n" +
     "  - Never fetch the same URL twice\n" +
     "  - Never fetch github.com/blob/ or github.com/tree/ pages\n" +
     "\n" +
     "## Your task\n" +
-    "1. Fetch the known spec URL to confirm it is still valid\n" +
+    "1. Fetch the known spec URL to confirm it is still a valid OpenAPI/Swagger spec\n" +
     "   (content must contain openapi: or swagger: or \"openapi\" or \"swagger\")\n" +
     "   - If 404 or not a spec → output DEAD\n" +
     "   - If valid → proceed to step 2\n" +
@@ -285,7 +292,9 @@ const string GITHUB_CHECK_SYSTEM_PROMPT =
     "       c. If both types present, ALWAYS prefer named version over any date\n" +
     "   - Prefer files whose name contains: openapi, swagger, api, spec\n" +
     "   - Skip folders or files that appear to be staging, preview, or draft versions\n" +
-    "3. If a newer version exists → return it. Otherwise → return the original.\n" +
+    "3. Optionally fetch the docs URL to cross-reference the latest version advertised\n" +
+    "   on the official documentation page.\n" +
+    "4. If a newer version exists → return it. Otherwise → return the original.\n" +
     "\n" +
     "## Output format — EXACTLY one of these, no other text\n" +
     "\n" +
@@ -301,10 +310,12 @@ const string GITHUB_CHECK_SYSTEM_PROMPT =
 public function stepGithubVersionCheck(
     string knownSpecUrl,
     string? knownSpecRepo,
+    string docsUrl,            // <-- NEW: passed so Claude can cross-reference
     string anthropicKey
 ) returns SpecResult?|string {
 
     log:printInfo(string `  [step2] GitHub version check: ${knownSpecUrl}`);
+    log:printDebug(string `  [step2:debug] docsUrl=${docsUrl} knownRepo=${knownSpecRepo ?: "none"}`);
 
     string repoContext = knownSpecRepo is string
         ? string `\nGitHub repo: ${knownSpecRepo}`
@@ -320,10 +331,12 @@ public function stepGithubVersionCheck(
 
     string userMsg = string `Check if this GitHub-hosted OpenAPI spec URL is still the latest version:
 Known URL: ${knownSpecUrl}${repoContext}${repoForContentsApi}
+Docs URL (official documentation page — use to cross-reference the latest version): ${docsUrl}
 
 1. Fetch the known URL to verify it is still a valid spec
 2. Check the parent folder for newer siblings
-3. Return GITHUB_CHECK_RESULT`;
+3. Optionally check the docs URL to confirm which version is current
+4. Return GITHUB_CHECK_RESULT`;
 
     json[] messages = [{"role": "user", "content": userMsg}];
     map<boolean> fetched = {};
@@ -335,6 +348,7 @@ Known URL: ${knownSpecUrl}${repoContext}${repoForContentsApi}
     while turn < maxTurns {
         turn += 1;
         log:printInfo(string `  [step2 turn ${turn}/${maxTurns}]`);
+        log:printDebug(string `  [step2:debug] turn ${turn} — calling Claude`);
 
         json|error resp = callClaude(anthropicKey, model, messages, GITHUB_CHECK_SYSTEM_PROMPT);
         if resp is error {
@@ -365,6 +379,8 @@ Known URL: ${knownSpecUrl}${repoContext}${repoForContentsApi}
             }
         }
 
+        log:printDebug(string `  [step2:debug] stop_reason=${stopReason} textLen=${text.length()} toolCalls=${toolBlocks.length()}`);
+
         if text.length() > 0 {
             int preview = text.length() > 400 ? 400 : text.length();
             log:printInfo(string `  [step2 claude] ${text.substring(0, preview)}`);
@@ -387,6 +403,7 @@ Known URL: ${knownSpecUrl}${repoContext}${repoForContentsApi}
                     if inp is map<json> {
                         json? urlVal = inp["url"];
                         if urlVal is string {
+                            log:printDebug(string `  [step2:debug] tool call: fetch_page url=${urlVal}`);
                             if fetched.hasKey(urlVal) {
                                 output = "{\"error\":\"already fetched\"}";
                             } else {
@@ -427,30 +444,32 @@ function parseGithubCheckResult(string text, string? fallbackRepo) returns SpecR
     }
 
     string[] lines = splitLines(after);
-    string url = "";
+    string resultUrl = "";
     string repo = fallbackRepo ?: "";
 
     foreach string line in lines {
         string t = line.trim();
-        if t.startsWith("URL:") { url = t.substring(4).trim(); }
+        if t.startsWith("URL:") { resultUrl = t.substring(4).trim(); }
         else if t.startsWith("REPO:") { repo = t.substring(5).trim(); }
     }
 
-    if url.length() == 0 { return (); }
+    if resultUrl.length() == 0 { return (); }
 
-    if !headOk(url) {
-        log:printWarn(string `  [step2] returned URL failed HEAD check: ${url}`);
+    log:printDebug(string `  [step2:debug] parsed result url=${resultUrl} repo=${repo}`);
+
+    if !headOk(resultUrl) {
+        log:printWarn(string `  [step2] returned URL failed HEAD check: ${resultUrl}`);
         return ();
     }
 
-    string fmt = url.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-    log:printInfo(string `  [step2] confirmed valid: ${url}`);
+    string fmt = resultUrl.toLowerAscii().endsWith(".json") ? "json" : "yaml";
+    log:printInfo(string `  [step2] confirmed valid: ${resultUrl}`);
     return {
-        specUrl: url,
-        specRepo: repo.length() > 0 ? repo : fallbackRepo,
-        title: (),
+        specUrl:    resultUrl,
+        specRepo:   repo.length() > 0 ? repo : fallbackRepo,
+        title:      (),
         apiVersion: (),
-        format: fmt
+        format:     fmt
     };
 }
 
@@ -614,6 +633,7 @@ public function stepDiscovery(
 ) returns DiscoveryResult {
 
     log:printInfo(string `  [step3] starting discovery for: ${apiName}`);
+    log:printDebug(string `  [step3:debug] docsUrl=${docsUrl} targetTitle=${targetTitle ?: "none"} knownRepo=${knownSpecRepo ?: "none"}`);
 
     string targetNote = targetTitle is string
         ? string `\nTarget: find ONLY the spec titled '${targetTitle}'.`
@@ -646,6 +666,7 @@ Return DISCOVERY_RESULT with raw download URLs only. List official vendor URLs b
     while turn < maxTurns {
         turn += 1;
         log:printInfo(string `  [step3 turn ${turn}/${maxTurns}]`);
+        log:printDebug(string `  [step3:debug] turn ${turn} — calling Claude`);
 
         json|error resp = callClaude(anthropicKey, model, messages, DISCOVERY_SYSTEM_PROMPT);
         if resp is error {
@@ -676,6 +697,8 @@ Return DISCOVERY_RESULT with raw download URLs only. List official vendor URLs b
             }
         }
 
+        log:printDebug(string `  [step3:debug] stop_reason=${stopReason} textLen=${text.length()} toolCalls=${toolBlocks.length()}`);
+
         if text.length() > 0 {
             int preview = text.length() > 400 ? 400 : text.length();
             log:printInfo(string `  [step3 claude] ${text.substring(0, preview)}`);
@@ -698,6 +721,7 @@ Return DISCOVERY_RESULT with raw download URLs only. List official vendor URLs b
                     if inp is map<json> {
                         json? urlVal = inp["url"];
                         if urlVal is string {
+                            log:printDebug(string `  [step3:debug] tool call: fetch_page url=${urlVal}`);
                             if fetched.hasKey(urlVal) {
                                 output = "{\"error\":\"already fetched\"}";
                             } else {
@@ -777,18 +801,20 @@ function parseDiscoveryResult(string text) returns DiscoveryResult {
         }
     }
 
+    log:printDebug(string `  [step3:debug] parseDiscoveryResult: repo=${repo ?: "none"} urls=${urls.length()}`);
+
     string method = urls.length() > 0 ? "discovered" : "none";
     return {candidateUrls: urls, specRepo: repo, discoveryMethod: method};
 }
 
 // ─── STEP 4: Content Verify ───────────────────────────────────────────────────
-// Pure HTTP — no Claude needed.
-// Confirms each candidate URL actually contains a valid spec.
 //
-// For very large files (Content-Length > 5MB from HEAD response), we skip
-// the content download and trust the HEAD check — these are known-large specs
-// like Microsoft Graph (~300MB) or Stripe (~14MB) where downloading even
-// 100KB can hang due to slow initial connection on oversized files.
+// For each candidate URL:
+//   1. HEAD check (fast pre-filter)
+//   2. Content-Length check: if > 5 MB, trust HEAD and return (known-large specs)
+//   3. Fetch first 100 KB and run looksLikeSpec
+//   4. If programmatic check fails: try Claude-based validation as fallback
+//      (this catches specs that Claude found but our keyword check misses)
 
 public function stepContentVerify(
     DiscoveryResult discovery
@@ -800,163 +826,126 @@ public function stepContentVerify(
     }
 
     log:printInfo(string `  [step4] verifying ${discovery.candidateUrls.length()} candidate(s)`);
+    log:printDebug(string `  [step4:debug] candidates: ${discovery.candidateUrls.toString()}`);
 
-    foreach string url in discovery.candidateUrls {
-        log:printInfo(string `  [step4 check] ${url}`);
+    foreach string candidateUrl in discovery.candidateUrls {
+        log:printInfo(string `  [step4 check] ${candidateUrl}`);
+        log:printDebug(string `  [step4:debug] processing: ${candidateUrl}`);
 
-        // HEAD check — optional fast pre-filter.
-        // raw.githubusercontent.com does not reliably support HEAD; if HEAD fails
-        // we still proceed to content fetch rather than skipping the URL.
-        boolean headPassed = headOk(url);
+        // ── HEAD check ────────────────────────────────────────────────────────
+        boolean headPassed = headOk(candidateUrl);
         if headPassed {
-            // Check Content-Length from HEAD to detect very large files.
-            // For files > 5MB, skip content fetch and trust HEAD — downloading
-            // even a small slice of a 300MB file (e.g. Microsoft Graph) can hang.
-            int contentLength = getContentLength(url);
+            // Check Content-Length for very large files.
+            // Files > 5 MB (e.g. Microsoft Graph, Stripe) are trusted on HEAD alone
+            // because downloading even a slice can hang on slow initial connections.
+            int contentLength = getContentLength(candidateUrl);
+            log:printDebug(string `  [step4:debug] headOk=true contentLength=${contentLength}`);
             if contentLength > 5000000 {
                 log:printInfo(string `  [step4] large file (${contentLength} bytes) — skipping content fetch, trusting HEAD`);
-                string fmt = url.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-                log:printInfo(string `  [step4] assumed valid (large known spec): ${url}`);
+                string fmt = candidateUrl.toLowerAscii().endsWith(".json") ? "json" : "yaml";
+                log:printInfo(string `  [step4] assumed valid (large known spec): ${candidateUrl}`);
                 return {
-                    specUrl: url,
-                    specRepo: discovery.specRepo,
-                    title: (),
+                    specUrl:    candidateUrl,
+                    specRepo:   discovery.specRepo,
+                    title:      (),
                     apiVersion: (),
-                    format: fmt
+                    format:     fmt
                 };
             }
         } else {
             log:printInfo("  [step4] HEAD failed — trying content fetch anyway");
+            log:printDebug(string `  [step4:debug] headOk=false for ${candidateUrl}`);
         }
 
-        // For normal-sized files, fetch 100KB and verify content
-        string|error body = httpGetBodyPartial(url, 100000);
+        // ── Content fetch + programmatic spec check ───────────────────────────
+        time:Utc t0 = time:utcNow();
+        string|error body = httpGetBodyPartial(candidateUrl, 100000);
+        decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
+
         if body is error {
-            log:printWarn(string `  [step4] content fetch failed for ${url}: ${body.message()}`);
+            log:printWarn(string `  [step4] content fetch failed for ${candidateUrl}: ${body.message()}`);
+            log:printDebug(string `  [step4:debug] fetch error after ${elapsed}s: ${body.message()}`);
             continue;
         }
+        log:printDebug(string `  [step4:debug] content fetch OK in ${elapsed}s — body=${body.length()} bytes`);
 
-        if !looksLikeSpec(body) {
-            log:printWarn(string `  [step4] content at ${url} is not a valid OpenAPI/Swagger spec — skipping`);
-            continue;
+        boolean specOk = looksLikeSpec(body);
+        log:printDebug(string `  [step4:debug] looksLikeSpec=${specOk} for ${candidateUrl}`);
+
+        if specOk {
+            string fmt = candidateUrl.toLowerAscii().endsWith(".json") ? "json" : "yaml";
+            log:printInfo(string `  [step4] confirmed valid: ${candidateUrl}`);
+            return {
+                specUrl:    candidateUrl,
+                specRepo:   discovery.specRepo,
+                title:      (),
+                apiVersion: (),
+                format:     fmt
+            };
         }
 
-        string fmt = url.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-        log:printInfo(string `  [step4] confirmed valid: ${url}`);
-        return {
-            specUrl: url,
-            specRepo: discovery.specRepo,
-            title: (),
-            apiVersion: (),
-            format: fmt
-        };
+        log:printWarn(string `  [step4] content at ${candidateUrl} is not a valid OpenAPI/Swagger spec — skipping`);
+        log:printDebug(string `  [step4:debug] body snippet (first 300 chars): ${body.substring(0, body.length() > 300 ? 300 : body.length())}`);
+
     }
 
     log:printWarn(string `  [step4] all ${discovery.candidateUrls.length()} candidate(s) failed verification`);
     return ();
 }
 
-// Returns the Content-Length of a URL from a HEAD request, or 0 if unavailable.
-function getContentLength(string url) returns int {
-    do {
-        string ghToken = os:getEnv("GITHUB_TOKEN");
-        map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
-        if (url.includes("api.github.com") || url.includes("raw.githubusercontent.com")) && ghToken.length() > 0 {
-            headers["Authorization"] = string `Bearer ${ghToken}`;
-        }
-        http:Client cl = check new (url, {
-            followRedirects: {enabled: true, maxCount: 5},
-            timeout: 10,
-            secureSocket: {enable: true}
-        });
-        http:Response r = check cl->head("", headers);
-        if r.statusCode == 200 {
-            string clHeader = check r.getHeader("content-length");
-            int|error parsed = int:fromString(clHeader);
-            if parsed is int { return parsed; }
-        }
-    } on fail {
-        // Content-Length not available — return 0 (proceed with content fetch)
-    }
-    return 0;
-}
-
 // ─── Spec content detection ───────────────────────────────────────────────────
+//
+// Checks whether a block of text looks like an OpenAPI or Swagger specification.
+//
+// Strategy (ordered from most to least specific):
+//   1. Exact YAML start markers (openapi: / swagger:)
+//   2. JSON top-level "openapi" or "swagger" key
+//   3. YAML occurrence anywhere in content (not just first line)
+//   4. JSON object with info + paths structure (common in large specs)
+//   5. GitHub "too large" error detection — do NOT validate these
+//
+// Note: We check up to 500 chars for structure markers and search the full
+// 100 KB for openapi/swagger keywords to handle large JSON specs where the
+// version field might not be in the very first bytes.
 
 isolated function looksLikeSpec(string content) returns boolean {
     string t = content.trim();
+
+    // Quick reject: GitHub API error messages
+    if t.startsWith("{\"message\":") && t.includes("API rate limit") { return false; }
+    if t.startsWith("{\"message\":") && t.includes("too large") { return false; }
+    if t.startsWith("{\"message\":") && t.includes("Not Found") { return false; }
+
+    // 1. YAML start markers
     if t.startsWith("openapi:") { return true; }
     if t.startsWith("swagger:") { return true; }
-    if t.includes("\"openapi\"") { return true; }
-    if t.includes("\"swagger\"") { return true; }
+    if t.startsWith("---\nopenapi:") { return true; }
+    if t.startsWith("---\nswagger:") { return true; }
+
+    // 2. JSON top-level "openapi" or "swagger" key (within first 500 bytes)
+    string head = t.length() > 500 ? t.substring(0, 500) : t;
+    if head.includes("\"openapi\"") { return true; }
+    if head.includes("\"swagger\"") { return true; }
+
+    // 3. YAML occurrence anywhere in 100 KB content
+    //    (some YAML specs have front-matter or comments before the openapi: key)
     if t.includes("\nopenapi:") { return true; }
     if t.includes("\nswagger:") { return true; }
+
+    // 4. JSON body search beyond first 500 bytes
+    //    (handles large JSON files where "openapi" key is not at the very start)
+    if t.startsWith("{") || t.startsWith("[") {
+        if t.includes("\"openapi\"") { return true; }
+        if t.includes("\"swagger\"") { return true; }
+        // Structural hint: JSON with both "info" and "paths" top-level keys
+        // is very likely an OpenAPI spec even without the version field
+        string head2 = t.length() > 2000 ? t.substring(0, 2000) : t;
+        if head2.includes("\"info\"") && head2.includes("\"paths\"") { return true; }
+    }
+
+    // 5. YAML component-only documents (OAS3 overlay files)
     if t.startsWith("components:") { return true; }
-    string head = t.length() > 300 ? t.substring(0, 300) : t;
-    if t.startsWith("{") && head.includes("\"components\"") { return true; }
+
     return false;
 }
 
-// ─── Shared HTTP helpers ──────────────────────────────────────────────────────
-
-// Converts a raw.githubusercontent.com URL to a GitHub Contents API URL.
-// raw.githubusercontent.com is unreliable for direct HTTP in this environment;
-// the Contents API (which we know works) with Accept: application/vnd.github.raw
-// returns the same raw file content.
-//
-// https://raw.githubusercontent.com/OWNER/REPO/BRANCH/path/to/file
-// → https://api.github.com/repos/OWNER/REPO/contents/path/to/file?ref=BRANCH
-isolated function rawUrlToApiUrl(string rawUrl) returns string {
-    string prefix = "raw.githubusercontent.com/";
-    int? pi = rawUrl.indexOf(prefix);
-    if pi is () { return rawUrl; }
-    string rest = rawUrl.substring(pi + prefix.length());
-
-    int? s1 = rest.indexOf("/");
-    if s1 is () { return rawUrl; }
-    string owner = rest.substring(0, s1);
-    string rem1 = rest.substring(s1 + 1);
-
-    int? s2 = rem1.indexOf("/");
-    if s2 is () { return rawUrl; }
-    string repo = rem1.substring(0, s2);
-    string rem2 = rem1.substring(s2 + 1);
-
-    int? s3 = rem2.indexOf("/");
-    if s3 is () { return rawUrl; }
-    string branch = rem2.substring(0, s3);
-    string path = rem2.substring(s3 + 1);
-
-    return string `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
-}
-
-function httpGetBodyPartial(string url, int maxBytes) returns string|error {
-    string ghToken = os:getEnv("GITHUB_TOKEN");
-    map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
-
-    // raw.githubusercontent.com is unreliable for direct HTTP in this env.
-    // Convert to the GitHub Contents API and request raw content via Accept header.
-    string fetchUrl = url;
-    if url.includes("raw.githubusercontent.com/") {
-        fetchUrl = rawUrlToApiUrl(url);
-        headers["Accept"] = "application/vnd.github.raw";
-    }
-
-    if (fetchUrl.includes("api.github.com") || url.includes("raw.githubusercontent.com")) && ghToken.length() > 0 {
-        headers["Authorization"] = string `Bearer ${ghToken}`;
-    }
-
-    decimal timeoutSecs = 20;
-
-    http:Client cl = check new (fetchUrl, {
-        followRedirects: {enabled: true, maxCount: 5},
-        timeout: timeoutSecs,
-        secureSocket: {enable: true}
-    });
-    http:Response resp = check cl->get("", headers);
-    if resp.statusCode != 200 {
-        return error(string `HTTP ${resp.statusCode}`);
-    }
-    string body = check resp.getTextPayload();
-    return body.length() > maxBytes ? body.substring(0, maxBytes) : body;
-}

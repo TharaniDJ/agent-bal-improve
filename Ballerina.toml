@@ -6,3 +6,17 @@ distribution = "2201.10.0"
 
 [build-options]
 observabilityIncluded = false
+
+# ── Java OpenAPI Validator (optional, improves spec validation accuracy) ──────
+#
+# To enable:
+#   1.  cd java-validator && ./build.sh
+#       (requires Java 11+ and Maven; downloads swagger-parser from Maven Central)
+#   2.  Uncomment the block below.
+#   3.  bal run .
+#
+# Without this block the system still works: it uses looksLikeSpec() (keyword
+# heuristic) as the primary check and Claude as a fallback validator.
+#
+# [[platform.java21.dependency]]
+# path = "libs/openapi-validator.jar"
