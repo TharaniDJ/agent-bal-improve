@@ -2,22 +2,23 @@
 // Shared utilities used by all pipeline steps:
 //   - executeFetchPage()        — tool handler (HTML/JSON/YAML fetch + parse)
 //   - callClaude()              — Anthropic API call
-//   - httpGetBody()             — raw HTTP GET, with Browserless fallback for SPAs
+//   - httpGetBody()             — raw HTTP GET, with local browser service fallback for SPAs
 //   - headOk()                  — HEAD check
 //   - HTML/string utils
 //
 // Fetching strategy for HTML docs pages:
-//   1. Try plain HTTP first (fast, no cost, works for static sites)
-//   2. If result has < 500 chars of visible text → SPA detected → use Browserless
-//   3. Browserless retries up to 3x with backoff on 429 (rate limit)
-//   4. If Browserless also fails → return whatever plain HTTP gave us
+//   1. Try plain HTTP first (fast, works for static sites)
+//   2. If result has < 500 chars of visible text → SPA detected → use browser service
+//   3. If browser service also fails → return whatever plain HTTP gave us
 //
-// Set BROWSERLESS_TOKEN env var. Free tier at https://browserless.io
+// Start the browser service before running:
+//   cd browser-service && node server.js
+// It listens on http://localhost:3456
 
 import ballerina/http;
 import ballerina/log;
 import ballerina/os;
-import ballerina/lang.runtime as runtime;
+import ballerina/url;
 
 // ─── Tool definition ─────────────────────────────────────────────────────────
 
@@ -232,93 +233,57 @@ isolated function isRawContentUrl(string url) returns boolean {
     return false;
 }
 
-// Fetches a URL via the Browserless.io /content REST API.
-// Renders the page in a real headless Chrome instance — handles JS/SPAs,
-// returns fully-rendered HTML including dynamically injected content and links.
+// Fetches a URL via the local browser service (browser-service/server.js).
+// The service uses Playwright/Chromium to render JS-heavy SPAs and returns
+// the fully-rendered HTML.
 //
-// Retries up to 3x on 429 (Too Many Requests) with increasing backoff.
-// Docs: https://docs.browserless.io/rest-apis/content
-function httpGetBodyViaBrowserless(string url) returns string|error {
-    string token = os:getEnv("BROWSERLESS_TOKEN");
-    if token.length() == 0 {
-        return error("BROWSERLESS_TOKEN not set");
-    }
+// Endpoint: GET http://localhost:3456/fetch?url=<encoded-url>
+// Response:  { "html": "..." }  or  { "error": "..." }
+function httpGetBodyViaBrowserService(string targetUrl) returns string|error {
+    log:printInfo(string `    [browser-service] ${targetUrl}`);
 
-    int maxAttempts = 3;
-    int attempt = 0;
-    int[] backoffMs = [5000, 15000, 30000];
+    http:Client cl = check new ("http://localhost:3456", {timeout: 35});
 
-    while attempt < maxAttempts {
-        attempt += 1;
-        log:printInfo(string `    [browserless] ${url}${attempt > 1 ? string ` (attempt ${attempt})` : ""}`);
-
-        string|error result = doSingleBrowserlessFetch(url, token);
-        if result is string {
-            return result;
-        }
-
-        string errMsg = result.message();
-        if errMsg.includes("429") && attempt < maxAttempts {
-            int waitMs = backoffMs[attempt - 1];
-            log:printInfo(string `    [browserless] 429 rate limited — waiting ${waitMs}ms before retry`);
-            runtime:sleep(<decimal>waitMs / 1000d);
-            continue;
-        }
-
-        log:printInfo(string `    [browserless] failed: ${errMsg}`);
-        return result;
-    }
-
-    return error("Browserless: max retries exceeded");
-}
-
-function doSingleBrowserlessFetch(string url, string token) returns string|error {
-    http:Client cl = check new ("https://production-sfo.browserless.io", {
-        timeout: 35,
-        secureSocket: {enable: true}
-    });
-
-    json payload = {
-        "url": url,
-        "gotoOptions": {
-            "waitUntil": "networkidle2",
-            "timeout": 30000
-        },
-        "bestAttempt": true
-    };
-
-    http:Response resp = check cl->post(
-        string `/content?token=${token}`,
-        payload,
-        {
-            "Content-Type": "application/json",
-            "Cache-Control": "no-cache"
-        }
-    );
+    string encodedUrl = check url:encode(targetUrl, "UTF-8");
+    http:Response resp = check cl->get(string `/fetch?url=${encodedUrl}`);
 
     if resp.statusCode != 200 {
         string errBody = check resp.getTextPayload();
         int cap = errBody.length() > 200 ? 200 : errBody.length();
-        return error(string `Browserless ${resp.statusCode}: ${errBody.substring(0, cap)}`);
+        return error(string `BrowserService ${resp.statusCode}: ${errBody.substring(0, cap)}`);
     }
 
-    string body = check resp.getTextPayload();
+    json respJson = check resp.getJsonPayload();
+    map<json> respMap = check respJson.cloneWithType();
+
+    // Server returns { "error": "..." } on failure
+    json errField = respMap["error"];
+    if errField != () && errField.toString().length() > 0 {
+        return error(string `BrowserService error: ${errField.toString()}`);
+    }
+
+    json htmlField = respMap["html"];
+    if htmlField == () {
+        return error("BrowserService: missing html field in response");
+    }
+
+    string html = htmlField.toString();
     // Cap at 500KB — large enough to capture spec links deep in long pages
     // (e.g. Mailchimp's spec link appears after ~200KB of endpoint docs)
-    string capped = body.length() > 500000 ? body.substring(0, 500000) : body;
-    log:printInfo(string `    [browserless] OK — ${body.length()} bytes (capped to ${capped.length()})`);
+    string capped = html.length() > 500000 ? html.substring(0, 500000) : html;
+    log:printInfo(string `    [browser-service] OK — ${html.length()} bytes (capped to ${capped.length()})`);
     return capped;
 }
 
 // Minimum visible text length to consider a plain-HTTP response "useful".
-// Pages below this threshold are treated as SPA shells and retried via Browserless.
+// Pages below this threshold are treated as SPA shells and retried via the browser service.
 // 500 chars is enough to detect a real page vs an empty React/Vue container.
 const int MIN_USEFUL_TEXT_LENGTH = 500;
 
 function httpGetBody(string url) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
     map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
-    if url.includes("api.github.com") && ghToken.length() > 0 {
+    if (url.includes("api.github.com") || url.includes("raw.githubusercontent.com")) && ghToken.length() > 0 {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
@@ -337,12 +302,9 @@ function httpGetBody(string url) returns string|error {
     }
 
     // HTML docs pages strategy:
-    //   1. Try plain HTTP with a generous 500KB cap
+    //   1. Try plain HTTP with a generous cap
     //   2. Check if the response has enough visible text to be useful
-    //   3. If not (SPA shell) — use Browserless for full JS rendering
-    //
-    // The 500KB cap is important: some pages (like Mailchimp) embed the spec
-    // version link deep in the body, after hundreds of KB of endpoint docs.
+    //   3. If not (SPA shell) — use local browser service for full JS rendering
     string|error plainResult = httpGetBodyPlain(url, headers, 100000);
 
     if plainResult is string {
@@ -352,22 +314,17 @@ function httpGetBody(string url) returns string|error {
             log:printInfo(string `    [plain-http] OK — ${plainResult.length()} bytes (${textContent.length()} chars text)`);
             return plainResult;
         }
-        log:printInfo(string `    [plain-http] SPA detected (only ${textContent.length()} chars text) — trying Browserless`);
+        log:printInfo(string `    [plain-http] SPA detected (only ${textContent.length()} chars text) — trying browser service`);
     } else {
-        log:printInfo(string `    [plain-http] failed: ${plainResult.message()} — trying Browserless`);
+        log:printInfo(string `    [plain-http] failed: ${plainResult.message()} — trying browser service`);
     }
 
-    // Use Browserless for full JS rendering
-    string browserlessToken = os:getEnv("BROWSERLESS_TOKEN");
-    if browserlessToken.length() > 0 {
-        string|error browserResult = httpGetBodyViaBrowserless(url);
-        if browserResult is string {
-            return browserResult;
-        }
-        log:printInfo(string `    [browserless] also failed: ${browserResult.message()} — using plain HTTP fallback`);
-    } else {
-        log:printInfo("    [browser-warn] BROWSERLESS_TOKEN not set — SPA pages may have missing content.");
+    // Use local browser service for full JS rendering
+    string|error browserResult = httpGetBodyViaBrowserService(url);
+    if browserResult is string {
+        return browserResult;
     }
+    log:printInfo(string `    [browser-service] also failed: ${browserResult.message()} — using plain HTTP fallback`);
 
     // Last resort: return whatever plain HTTP gave us
     if plainResult is string {
@@ -396,7 +353,7 @@ function headOk(string url) returns boolean {
     do {
         string ghToken = os:getEnv("GITHUB_TOKEN");
         map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
-        if url.includes("api.github.com") && ghToken.length() > 0 {
+        if (url.includes("api.github.com") || url.includes("raw.githubusercontent.com")) && ghToken.length() > 0 {
             headers["Authorization"] = string `Bearer ${ghToken}`;
         }
         http:Client cl = check new (url, {

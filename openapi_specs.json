@@ -1,330 +1,5 @@
 [
     {
-        "name": "Jira",
-        "docsUrl": "https://developer.atlassian.com/cloud/jira/platform/rest/v3/",
-        "targetTitle": null,
-        "specUrl": "https://dac-static.atlassian.com/cloud/jira/platform/swagger-v3.v3.json",
-        "specRepo": "N/A",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-07T16:13:18.679469Z",
-        "elapsedSeconds": 85.4
-    },
-    {
-        "name": "Mailchimp Marketing",
-        "docsUrl": "https://github.com/mailchimp/mailchimp-client-lib-codegen",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/mailchimp/mailchimp-client-lib-codegen/main/spec/marketing.json",
-        "specRepo": "mailchimp/mailchimp-client-lib-codegen",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-07T16:12:46.588958Z",
-        "elapsedSeconds": 51.9
-    },
-    {
-        "name": "Mailchimp Transactional",
-        "docsUrl": "https://github.com/mailchimp/mailchimp-client-lib-codegen",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/mailchimp/mailchimp-client-lib-codegen/main/spec/transactional.openapi.json",
-        "specRepo": "mailchimp/mailchimp-client-lib-codegen",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-07T16:12:53.903337Z",
-        "elapsedSeconds": 59.1
-    },
-    {
-        "name": "Microsoft OneDrive",
-        "docsUrl": "https://learn.microsoft.com/en-us/onedrive/developer/rest-api/",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/microsoftgraph/msgraph-metadata/master/openapi/v1.0/openapi.yaml",
-        "specRepo": "microsoftgraph/msgraph-metadata",
-        "title": null,
-        "apiVersion": null,
-        "format": "yaml",
-        "status": "found",
-        "checkedAt": "2026-04-07T16:13:10.489670Z",
-        "elapsedSeconds": 75.7
-    },
-    {
-        "name": "OpenAI",
-        "docsUrl": "https://github.com/openai/openai-openapi",
-        "targetTitle": null,
-        "specUrl": "https://app.stainless.com/api/spec/documented/openai/openapi.documented.yml",
-        "specRepo": "openai/openai-openapi",
-        "title": null,
-        "apiVersion": null,
-        "format": "yaml",
-        "status": "found",
-        "checkedAt": "2026-04-07T16:13:06.238066Z",
-        "elapsedSeconds": 71.5
-    },
-    {
-        "name": "PayPal Invoices",
-        "docsUrl": "https://developer.paypal.com/docs/api/invoicing/v2/",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/paypal/paypal-rest-api-specifications/main/openapi/invoicing_v2.json",
-        "specRepo": "paypal/paypal-rest-api-specifications",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-07T16:16:25.947316Z",
-        "elapsedSeconds": 187.3
-    },
-    {
-        "name": "PayPal Orders",
-        "docsUrl": "https://developer.paypal.com/docs/api/orders/v2/",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/paypal/paypal-rest-api-specifications/main/openapi/checkout_orders_v2.json",
-        "specRepo": "paypal/paypal-rest-api-specifications",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-07T16:16:21.907640Z",
-        "elapsedSeconds": 183.2
-    },
-    {
-        "name": "PayPal Payments",
-        "docsUrl": "https://developer.paypal.com/docs/api/payments/v2/",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/paypal/paypal-rest-api-specifications/main/openapi/payments_payment_v2.json",
-        "specRepo": "paypal/paypal-rest-api-specifications",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-07T16:16:19.859325Z",
-        "elapsedSeconds": 181.1
-    },
-    {
-        "name": "PayPal Subscriptions",
-        "docsUrl": "https://developer.paypal.com/docs/api/subscriptions/v1/",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/paypal/paypal-rest-api-specifications/main/openapi/billing_subscriptions_v1.json",
-        "specRepo": "paypal/paypal-rest-api-specifications",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-07T16:16:18.216876Z",
-        "elapsedSeconds": 179.5
-    },
-    {
-        "name": "Salesforce Marketing Cloud",
-        "docsUrl": "https://github.com/salesforce-marketingcloud/mcsdk-automation-framework-core",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/salesforce-marketingcloud/mcsdk-automation-framework-core/master/resources/sfmc-openapi-v2.json",
-        "specRepo": "salesforce-marketingcloud/mcsdk-automation-framework-core",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-07T16:13:35.664436Z",
-        "elapsedSeconds": 16.9
-    },
-    {
-        "name": "Asana",
-        "docsUrl": "https://developers.asana.com/reference/rest-api-reference",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/Asana/openapi/master/defs/asana_oas.yaml",
-        "specRepo": "Asana/openapi",
-        "title": null,
-        "apiVersion": null,
-        "format": "yaml",
-        "status": "found",
-        "checkedAt": "2026-04-07T17:21:18.836025Z",
-        "elapsedSeconds": 35.9
-    },
-    {
-        "name": "GitHub",
-        "docsUrl": "https://docs.github.com/en/rest",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.2026-03-10.yaml",
-        "specRepo": "github/rest-api-description",
-        "title": null,
-        "apiVersion": null,
-        "format": "yaml",
-        "status": "found",
-        "checkedAt": "2026-04-07T17:21:35.512202Z",
-        "elapsedSeconds": 51.2
-    },
-    {
-        "name": "DocuSign Admin API",
-        "docsUrl": "https://developers.docusign.com/docs/admin-api/",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/docusign/OpenAPI-Specifications/master/admin.rest.swagger-v2.1.json",
-        "specRepo": "docusign/OpenAPI-Specifications",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-07T17:21:00.002123Z",
-        "elapsedSeconds": 15.7
-    },
-    {
-        "name": "DocuSign Click API",
-        "docsUrl": "https://developers.docusign.com/docs/click-api/",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/docusign/OpenAPI-Specifications/master/click.rest.swagger-v2.json",
-        "specRepo": "docusign/OpenAPI-Specifications",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-07T17:20:58.109196Z",
-        "elapsedSeconds": 13.8
-    },
-    {
-        "name": "DocuSign eSign API",
-        "docsUrl": "https://developers.docusign.com/docs/esign-rest-api/",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/docusign/OpenAPI-Specifications/master/esignature.rest.swagger-v2.1.json",
-        "specRepo": "docusign/OpenAPI-Specifications",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-07T17:21:15.513129Z",
-        "elapsedSeconds": 31.2
-    },
-    {
-        "name": "Candid CharityCheckPdf",
-        "docsUrl": "https://developer.candid.org/reference/openapi",
-        "targetTitle": "CharityCheckPdf",
-        "specUrl": "https://developer.candid.org/openapi/67ed9946506aa7006c8195dc",
-        "specRepo": "N/A",
-        "title": null,
-        "apiVersion": null,
-        "format": "yaml",
-        "status": "found",
-        "checkedAt": "2026-04-07T17:21:53.162520Z",
-        "elapsedSeconds": 17.6
-    },
-    {
-        "name": "Candid Essentials",
-        "docsUrl": "https://developer.candid.org/reference/openapi",
-        "targetTitle": "Essentials",
-        "specUrl": "https://developer.candid.org/openapi/69a9f66d5b8c3e2ef5316d9d",
-        "specRepo": "N/A",
-        "title": null,
-        "apiVersion": null,
-        "format": "yaml",
-        "status": "found",
-        "checkedAt": "2026-04-07T17:21:56.903449Z",
-        "elapsedSeconds": 21.4
-    },
-    {
-        "name": "Candid Premier",
-        "docsUrl": "https://developer.candid.org/reference/openapi",
-        "targetTitle": "Premier API",
-        "specUrl": "https://developer.candid.org/openapi/69a9fcbafe150e84ef5085b9",
-        "specRepo": "N/A",
-        "title": null,
-        "apiVersion": null,
-        "format": "yaml",
-        "status": "found",
-        "checkedAt": "2026-04-07T17:21:56.899650Z",
-        "elapsedSeconds": 21.4
-    },
-    {
-        "name": "Discord",
-        "docsUrl": "https://discord.com/developers/docs/reference",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/discord/discord-api-spec/main/specs/openapi.json",
-        "specRepo": "discord/discord-api-spec",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-07T17:21:50.178799Z",
-        "elapsedSeconds": 14.6
-    },
-    {
-        "name": "HubSpot CRM Commerce Orders",
-        "docsUrl": "https://github.com/HubSpot/HubSpot-public-api-spec-collection",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Orders/Rollouts/424/v3/orders.json",
-        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-08T03:19:41.624570Z",
-        "elapsedSeconds": 33.9
-    },
-    {
-        "name": "HubSpot CRM Commerce Quotes",
-        "docsUrl": "https://github.com/HubSpot/HubSpot-public-api-spec-collection",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Quotes/Rollouts/424/v3/quotes.json",
-        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-08T03:19:40.782321Z",
-        "elapsedSeconds": 31.7
-    },
-    {
-        "name": "HubSpot CRM Commerce Taxes",
-        "docsUrl": "https://github.com/HubSpot/HubSpot-public-api-spec-collection",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Taxes/Rollouts/424/v3/taxes.json",
-        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-08T03:19:38.108404Z",
-        "elapsedSeconds": 29.0
-    },
-    {
-        "name": "HubSpot CRM Engagement Meeting",
-        "docsUrl": "https://github.com/HubSpot/HubSpot-public-api-spec-collection",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Meetings/Rollouts/424/v3/meetings.json",
-        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-08T03:19:38.166395Z",
-        "elapsedSeconds": 29.0
-    },
-    {
-        "name": "HubSpot CRM Engagement Notes",
-        "docsUrl": "https://github.com/HubSpot/HubSpot-public-api-spec-collection",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Notes/Rollouts/424/v3/notes.json",
-        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-08T03:19:39.629727Z",
-        "elapsedSeconds": 30.5
-    },
-    {
-        "name": "HubSpot Marketing Transactional",
-        "docsUrl": "https://github.com/HubSpot/HubSpot-public-api-spec-collection",
-        "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/Marketing/Transactional%20Single%20Send/Rollouts/140892/v3/transactionalSingleSend.json",
-        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
-        "title": null,
-        "apiVersion": null,
-        "format": "json",
-        "status": "found",
-        "checkedAt": "2026-04-08T03:20:07.533365Z",
-        "elapsedSeconds": 25.9
-    },
-    {
         "name": "HubSpot CRM Contacts",
         "docsUrl": "https://developers.hubspot.com/docs/api/crm/contacts",
         "targetTitle": null,
@@ -334,8 +9,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:28:27.185354Z",
-        "elapsedSeconds": 26.6
+        "checkedAt": "2026-04-10T04:29:19.995316Z",
+        "elapsedSeconds": 56.2
     },
     {
         "name": "HubSpot CRM Companies",
@@ -347,8 +22,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:28:15.115391Z",
-        "elapsedSeconds": 13.0
+        "checkedAt": "2026-04-10T04:29:10.884343Z",
+        "elapsedSeconds": 47.1
     },
     {
         "name": "HubSpot CRM Deals",
@@ -360,8 +35,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:28:11.077953Z",
-        "elapsedSeconds": 8.9
+        "checkedAt": "2026-04-10T04:29:17.286359Z",
+        "elapsedSeconds": 53.5
     },
     {
         "name": "HubSpot CRM Associations",
@@ -373,8 +48,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:28:16.208904Z",
-        "elapsedSeconds": 14.0
+        "checkedAt": "2026-04-10T04:29:21.914235Z",
+        "elapsedSeconds": 58.1
     },
     {
         "name": "HubSpot CRM Associations Schema",
@@ -386,8 +61,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:28:14.397888Z",
-        "elapsedSeconds": 12.2
+        "checkedAt": "2026-04-10T04:29:19.483649Z",
+        "elapsedSeconds": 55.7
     },
     {
         "name": "HubSpot CRM Owners",
@@ -399,8 +74,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:28:34.869205Z",
-        "elapsedSeconds": 7.7
+        "checkedAt": "2026-04-10T04:30:02.897235Z",
+        "elapsedSeconds": 41.0
     },
     {
         "name": "HubSpot CRM Pipelines",
@@ -412,7 +87,7 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-08T03:28:40.840023Z",
-        "elapsedSeconds": 13.6
+        "checkedAt": "2026-04-10T04:30:04.213571Z",
+        "elapsedSeconds": 42.3
     }
 ]

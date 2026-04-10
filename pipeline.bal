@@ -798,27 +798,29 @@ public function stepContentVerify(
     foreach string url in discovery.candidateUrls {
         log:printInfo(string `  [step4 check] ${url}`);
 
-        // HEAD check first — fast, no body download
-        if !headOk(url) {
-            log:printInfo("  [step4] HEAD failed — skipping");
-            continue;
-        }
-
-        // Check Content-Length from HEAD to detect very large files.
-        // For files > 5MB, skip content fetch and trust HEAD — downloading
-        // even a small slice of a 300MB file (e.g. Microsoft Graph) can hang.
-        int contentLength = getContentLength(url);
-        if contentLength > 5000000 {
-            log:printInfo(string `  [step4] large file (${contentLength} bytes) — skipping content fetch, trusting HEAD`);
-            string fmt = url.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-            log:printInfo(string `  [step4] assumed valid (large known spec): ${url}`);
-            return {
-                specUrl: url,
-                specRepo: discovery.specRepo,
-                title: (),
-                apiVersion: (),
-                format: fmt
-            };
+        // HEAD check — optional fast pre-filter.
+        // raw.githubusercontent.com does not reliably support HEAD; if HEAD fails
+        // we still proceed to content fetch rather than skipping the URL.
+        boolean headPassed = headOk(url);
+        if headPassed {
+            // Check Content-Length from HEAD to detect very large files.
+            // For files > 5MB, skip content fetch and trust HEAD — downloading
+            // even a small slice of a 300MB file (e.g. Microsoft Graph) can hang.
+            int contentLength = getContentLength(url);
+            if contentLength > 5000000 {
+                log:printInfo(string `  [step4] large file (${contentLength} bytes) — skipping content fetch, trusting HEAD`);
+                string fmt = url.toLowerAscii().endsWith(".json") ? "json" : "yaml";
+                log:printInfo(string `  [step4] assumed valid (large known spec): ${url}`);
+                return {
+                    specUrl: url,
+                    specRepo: discovery.specRepo,
+                    title: (),
+                    apiVersion: (),
+                    format: fmt
+                };
+            }
+        } else {
+            log:printInfo("  [step4] HEAD failed — trying content fetch anyway");
         }
 
         // For normal-sized files, fetch 100KB and verify content
@@ -853,7 +855,7 @@ function getContentLength(string url) returns int {
     do {
         string ghToken = os:getEnv("GITHUB_TOKEN");
         map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
-        if url.includes("api.github.com") && ghToken.length() > 0 {
+        if (url.includes("api.github.com") || url.includes("raw.githubusercontent.com")) && ghToken.length() > 0 {
             headers["Authorization"] = string `Bearer ${ghToken}`;
         }
         http:Client cl = check new (url, {
@@ -891,16 +893,56 @@ isolated function looksLikeSpec(string content) returns boolean {
 
 // ─── Shared HTTP helpers ──────────────────────────────────────────────────────
 
+// Converts a raw.githubusercontent.com URL to a GitHub Contents API URL.
+// raw.githubusercontent.com is unreliable for direct HTTP in this environment;
+// the Contents API (which we know works) with Accept: application/vnd.github.raw
+// returns the same raw file content.
+//
+// https://raw.githubusercontent.com/OWNER/REPO/BRANCH/path/to/file
+// → https://api.github.com/repos/OWNER/REPO/contents/path/to/file?ref=BRANCH
+isolated function rawUrlToApiUrl(string rawUrl) returns string {
+    string prefix = "raw.githubusercontent.com/";
+    int? pi = rawUrl.indexOf(prefix);
+    if pi is () { return rawUrl; }
+    string rest = rawUrl.substring(pi + prefix.length());
+
+    int? s1 = rest.indexOf("/");
+    if s1 is () { return rawUrl; }
+    string owner = rest.substring(0, s1);
+    string rem1 = rest.substring(s1 + 1);
+
+    int? s2 = rem1.indexOf("/");
+    if s2 is () { return rawUrl; }
+    string repo = rem1.substring(0, s2);
+    string rem2 = rem1.substring(s2 + 1);
+
+    int? s3 = rem2.indexOf("/");
+    if s3 is () { return rawUrl; }
+    string branch = rem2.substring(0, s3);
+    string path = rem2.substring(s3 + 1);
+
+    return string `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
+}
+
 function httpGetBodyPartial(string url, int maxBytes) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
     map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
-    if url.includes("api.github.com") && ghToken.length() > 0 {
+
+    // raw.githubusercontent.com is unreliable for direct HTTP in this env.
+    // Convert to the GitHub Contents API and request raw content via Accept header.
+    string fetchUrl = url;
+    if url.includes("raw.githubusercontent.com/") {
+        fetchUrl = rawUrlToApiUrl(url);
+        headers["Accept"] = "application/vnd.github.raw";
+    }
+
+    if (fetchUrl.includes("api.github.com") || url.includes("raw.githubusercontent.com")) && ghToken.length() > 0 {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
-    decimal timeoutSecs = isRawContentUrl(url) ? 20 : 8;
+    decimal timeoutSecs = 20;
 
-    http:Client cl = check new (url, {
+    http:Client cl = check new (fetchUrl, {
         followRedirects: {enabled: true, maxCount: 5},
         timeout: timeoutSecs,
         secureSocket: {enable: true}
