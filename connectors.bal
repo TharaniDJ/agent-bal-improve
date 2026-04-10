@@ -8,6 +8,6 @@ public final Connector[] & readonly ALL_CONNECTORS = [
     {name: "Trello",        docsUrl: "https://developer.atlassian.com/cloud/trello/rest/",                                  targetTitle: ()},
     {name: "Twilio",        docsUrl: "https://www.twilio.com/docs/usage/api",                                               targetTitle: ()},
     {name: "Twitter",       docsUrl: "https://github.com/xdevplatform",                                               targetTitle: ()},
-    {name: "Zendesk",       docsUrl: "https://developer.zendesk.com/api-reference/ticketing/introduction/",                                        targetTitle: ()},
+    {name: "Zendesk",       docsUrl: "https://developer.zendesk.com/api-reference/ticketing/introduction/",                                        targetTitle: ("Ticketing API")},
     {name: "Zoom Meetings", docsUrl: "https://developers.zoom.us/docs/api/meetings/",                                       targetTitle: ()}
 ];
