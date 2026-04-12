@@ -629,28 +629,40 @@ public function stepDiscovery(
     string apiName,
     string? targetTitle,
     string anthropicKey,
-    string? knownSpecRepo
+    string? knownSpecRepo,
+    string? knownSpecUrl = ()    // previously stored spec URL — use as starting hint
 ) returns DiscoveryResult {
 
     log:printInfo(string `  [step3] starting discovery for: ${apiName}`);
-    log:printDebug(string `  [step3:debug] docsUrl=${docsUrl} targetTitle=${targetTitle ?: "none"} knownRepo=${knownSpecRepo ?: "none"}`);
+    log:printDebug(string `  [step3:debug] docsUrl=${docsUrl} targetTitle=${targetTitle ?: "none"} knownRepo=${knownSpecRepo ?: "none"} knownUrl=${knownSpecUrl ?: "none"}`);
 
     string targetNote = targetTitle is string
         ? string `\nTarget: find ONLY the spec titled '${targetTitle}'.`
         : "";
 
     string repoHint = knownSpecRepo is string
-        ? string `\nKnown GitHub repo: ${knownSpecRepo} — start here with Contents API.`
+        ? string `\nKnown GitHub repo: ${knownSpecRepo} — use this as a starting point with the Contents API.`
         : "";
 
-    string userMsg = string `Find the OpenAPI spec download URL for: ${apiName}
-Docs URL: ${docsUrl}${targetNote}${repoHint}
+    // When we have a previously confirmed URL, tell Claude about it so it can
+    // verify it is still valid and check for a newer version, instead of
+    // searching from scratch.
+    string urlHint = knownSpecUrl is string
+        ? string `\nPreviously confirmed spec URL: ${knownSpecUrl}\n  — Start by checking whether this URL is still a valid spec and whether a newer stable version exists.\n  — If it is still valid and no newer version is found, return it as the result.`
+        : "";
+
+    string userMsg = string `Find the latest stable OpenAPI spec download URL for: ${apiName}
+Docs URL: ${docsUrl}${targetNote}${urlHint}${repoHint}
 
 STRICT PRIORITY ORDER:
-1. ALWAYS fetch the docs URL first — it often has a direct download link or an embedded spec URL.
-   If the docs page contains ANY URL ending in .yaml/.json or containing 'openapi'/'swagger', that is the official spec — return it immediately.
-2. Only if docs page is empty/useless → check the vendor's official GitHub repo.
-3. ONLY as an absolute last resort, after docs page AND vendor GitHub have both failed → check APIs-guru.
+1. If a previously confirmed spec URL is given above, ALWAYS check that URL first:
+   - Fetch it to verify it is still a valid OpenAPI/Swagger spec.
+   - Check the parent folder or docs page for a newer stable version.
+   - If still valid and latest, return it immediately.
+2. ALWAYS fetch the docs URL — it often has a direct download link or an embedded spec URL.
+   If the docs page contains ANY URL ending in .yaml/.json or containing 'openapi'/'swagger', that is the official spec — return it.
+3. Only if docs page is empty/useless → check the vendor's official GitHub repo.
+4. ONLY as an absolute last resort, after docs page AND vendor GitHub have both failed → check APIs-guru.
    Never jump to APIs-guru early. Official vendor sources are always preferred.
 
 Return DISCOVERY_RESULT with raw download URLs only. List official vendor URLs before any APIs-guru URLs.`;
@@ -805,6 +817,46 @@ function parseDiscoveryResult(string text) returns DiscoveryResult {
 
     string method = urls.length() > 0 ? "discovered" : "none";
     return {candidateUrls: urls, specRepo: repo, discoveryMethod: method};
+}
+
+// ─── Direct verify of a known URL (no Claude) ────────────────────────────────
+//
+// Used when a version-check step returns () (Claude API error / exhausted turns)
+// but NOT "DEAD". In that case the URL may well still be valid — we verify it
+// programmatically before falling back to a full re-discovery run.
+//
+// Returns SpecResult if the URL is reachable and looksLikeSpec passes.
+// Returns () if the fetch fails or the content is not a spec.
+
+public function directVerifyKnownUrl(string knownUrl, string? knownRepo) returns SpecResult? {
+    log:printInfo(string `  [direct-verify] checking known URL: ${knownUrl}`);
+    log:printDebug(string `  [direct-verify:debug] repo=${knownRepo ?: "none"}`);
+
+    time:Utc t0 = time:utcNow();
+    string|error body = httpGetBodyPartial(knownUrl, 100000);
+    decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
+
+    if body is error {
+        log:printWarn(string `  [direct-verify] fetch failed after ${elapsed}s: ${body.message()}`);
+        return ();
+    }
+    log:printDebug(string `  [direct-verify:debug] fetch OK in ${elapsed}s — ${body.length()} bytes`);
+
+    if !looksLikeSpec(body) {
+        log:printWarn(string `  [direct-verify] content at ${knownUrl} is not a valid spec`);
+        log:printDebug(string `  [direct-verify:debug] body snippet: ${body.substring(0, body.length() > 200 ? 200 : body.length())}`);
+        return ();
+    }
+
+    string fmt = knownUrl.toLowerAscii().endsWith(".json") ? "json" : "yaml";
+    log:printInfo(string `  [direct-verify] confirmed valid: ${knownUrl}`);
+    return {
+        specUrl:    knownUrl,
+        specRepo:   knownRepo,
+        title:      (),
+        apiVersion: (),
+        format:     fmt
+    };
 }
 
 // ─── STEP 4: Content Verify ───────────────────────────────────────────────────

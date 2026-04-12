@@ -164,10 +164,22 @@ function processConnector(
     SpecResult? finalResult = ();
 
     if knownUrl is string {
-        // ── Path A: We have a known URL ──────────────────────────────────────
+        // ── Path A: We have a known URL from a previous run ──────────────────
+        //
+        // Sub-paths:
+        //   A1 — stable direct endpoint (CDN, vendor portal): LLM validates + checks for newer
+        //   A2 — raw.githubusercontent.com URL: LLM checks parent folder for newer version
+        //
+        // After any version-check step:
+        //   • SpecResult  → confirmed (same or newer URL); done
+        //   • "DEAD"      → URL is gone; re-discover from scratch (knownUrl not useful)
+        //   • ()          → Claude API error / exhausted turns; the URL may still be valid:
+        //                   first try a fast programmatic check of the known URL, and only
+        //                   fall back to full re-discovery if that also fails.
+        //                   In both re-discovery cases, pass knownUrl as a hint to Claude.
 
         if !knownUrl.includes("raw.githubusercontent.com") {
-            // A1: Stable direct endpoint — LLM validates and checks for newer version
+            // A1: Stable direct endpoint
             log:printInfo(string `${progress} path=stable-version-check`);
             SpecResult?|string stableResult = stepQuickVerify(knownUrl, knownRepo, c.docsUrl, apiKey);
 
@@ -175,19 +187,27 @@ function processConnector(
                 log:printInfo(string `${progress} stable-version-check => confirmed`);
                 finalResult = stableResult;
             } else if stableResult is string {
+                // URL confirmed dead — re-discover without the dead URL
                 log:printWarn(string `${progress} stable URL is DEAD — re-discovering`);
                 DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
                 log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
                 finalResult = stepContentVerify(disc);
             } else {
-                log:printWarn(string `${progress} stable-version-check returned nothing — re-discovering`);
-                DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
-                log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
-                finalResult = stepContentVerify(disc);
+                // Claude API error / timeout — try the known URL directly first
+                log:printWarn(string `${progress} stable-version-check inconclusive — trying direct verify of known URL`);
+                finalResult = directVerifyKnownUrl(knownUrl, knownRepo);
+                if finalResult is () {
+                    log:printWarn(string `${progress} direct verify failed — re-discovering with known URL as hint`);
+                    DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo, knownUrl);
+                    log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
+                    finalResult = stepContentVerify(disc);
+                } else {
+                    log:printInfo(string `${progress} direct verify succeeded — using known URL`);
+                }
             }
 
         } else {
-            // A2: GitHub raw URL — check for newer version in parent folder
+            // A2: GitHub raw URL
             log:printInfo(string `${progress} path=github-version-check`);
             SpecResult?|string checkResult = stepGithubVersionCheck(knownUrl, knownRepo, c.docsUrl, apiKey);
 
@@ -195,20 +215,28 @@ function processConnector(
                 log:printInfo(string `${progress} github-version-check => confirmed`);
                 finalResult = checkResult;
             } else if checkResult is string {
+                // URL confirmed dead — re-discover without the dead URL
                 log:printWarn(string `${progress} GitHub URL is DEAD — re-discovering`);
                 DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
                 log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
                 finalResult = stepContentVerify(disc);
             } else {
-                log:printWarn(string `${progress} github-version-check returned nothing — re-discovering`);
-                DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
-                log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
-                finalResult = stepContentVerify(disc);
+                // Claude API error / timeout — try the known URL directly first
+                log:printWarn(string `${progress} github-version-check inconclusive — trying direct verify of known URL`);
+                finalResult = directVerifyKnownUrl(knownUrl, knownRepo);
+                if finalResult is () {
+                    log:printWarn(string `${progress} direct verify failed — re-discovering with known URL as hint`);
+                    DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo, knownUrl);
+                    log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
+                    finalResult = stepContentVerify(disc);
+                } else {
+                    log:printInfo(string `${progress} direct verify succeeded — using known URL`);
+                }
             }
         }
 
     } else {
-        // ── Path B: No known URL — full discovery ────────────────────────────
+        // ── Path B: No known URL — full discovery from scratch ───────────────
         log:printInfo(string `${progress} path=full-discovery`);
         DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
         log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
