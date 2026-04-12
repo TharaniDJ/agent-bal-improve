@@ -28,6 +28,10 @@ configurable string outputFile = "openapi_specs.json";
 const string BAR  = "================================================================";
 const string DASH = "----------------------------------------------------------------";
 
+// Maximum wall-clock seconds allowed for a single connector (all steps combined).
+// Override via MAX_CONNECTOR_SECONDS env var.  Default: 300 s (5 minutes).
+const decimal DEFAULT_MAX_CONNECTOR_SECONDS = 300.0;
+
 public function main() returns error? {
     string apiKey    = os:getEnv("ANTHROPIC_API_KEY");
     string filterStr = os:getEnv("FILTER").toLowerAscii();

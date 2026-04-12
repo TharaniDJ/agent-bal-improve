@@ -417,6 +417,11 @@ function httpGetBodyViaBrowserService(string targetUrl) returns string|error {
 // Minimum visible text length to consider a plain-HTTP response "useful".
 const int MIN_USEFUL_TEXT_LENGTH = 500;
 
+// How many bytes of a raw spec file we request via Range header.
+// The Claude tool and looksLikeSpec() only need the first ~12 KB to detect
+// openapi/swagger fields.  Servers that ignore Range still return 200 + full body.
+const int SPEC_SNIPPET_BYTES = 12000;
+
 function httpGetBody(string fetchUrl) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
     map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
@@ -425,8 +430,14 @@ function httpGetBody(string fetchUrl) returns string|error {
     }
 
     // Raw content (GitHub API, spec files): plain HTTP only, no browser needed.
+    // Use Range header to cap response at SPEC_SNIPPET_BYTES — the Claude tool
+    // only needs the first 12 KB to detect openapi/swagger fields.
+    // This prevents slow servers from blocking for minutes on large spec files.
+    // Servers that don't support Range respond with 200 + full body (still works).
     if isRawContentUrl(fetchUrl) {
-        log:printDebug(string `    [httpGetBody:debug] raw-content URL — direct fetch: ${fetchUrl}`);
+        int snapCap = SPEC_SNIPPET_BYTES - 1;
+        headers["Range"] = string `bytes=0-${snapCap}`;
+        log:printDebug(string `    [httpGetBody:debug] raw-content URL — direct fetch (Range:0-${snapCap}): ${fetchUrl}`);
         time:Utc t0 = time:utcNow();
         http:Client cl = check new (fetchUrl, {
             followRedirects: {enabled: true, maxCount: 5},
@@ -436,7 +447,8 @@ function httpGetBody(string fetchUrl) returns string|error {
         http:Response resp = check cl->get("", headers);
         decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
         log:printDebug(string `    [httpGetBody:debug] raw response status=${resp.statusCode} elapsed=${elapsed}s`);
-        if resp.statusCode != 200 {
+        // Accept 200 OK and 206 Partial Content (Range honoured)
+        if resp.statusCode != 200 && resp.statusCode != 206 {
             return error(string `HTTP ${resp.statusCode}`);
         }
         string body = check resp.getTextPayload();
@@ -563,6 +575,15 @@ function httpGetBodyPartial(string rawUrl, int maxBytes) returns string|error {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
+    // For non-GitHub direct spec URLs (e.g. vendor portals), add a Range header
+    // so slow servers streaming large files don't block for minutes.
+    // Servers that ignore Range respond 200 + full body — still safe.
+    if !isGitHubRaw && !fetchUrl.includes("api.github.com") {
+        int rangeEnd = maxBytes - 1;
+        headers["Range"] = string `bytes=0-${rangeEnd}`;
+        log:printDebug(string `    [partial-fetch:debug] non-GitHub URL — adding Range: bytes=0-${rangeEnd}`);
+    }
+
     log:printDebug(string `    [partial-fetch:debug] fetching ${fetchUrl} maxBytes=${maxBytes}`);
     time:Utc t0 = time:utcNow();
 
@@ -575,7 +596,8 @@ function httpGetBodyPartial(string rawUrl, int maxBytes) returns string|error {
     decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
     log:printDebug(string `    [partial-fetch:debug] status=${resp.statusCode} elapsed=${elapsed}s`);
 
-    if resp.statusCode != 200 {
+    // Accept 200 OK and 206 Partial Content (Range header honoured)
+    if resp.statusCode != 200 && resp.statusCode != 206 {
         return error(string `HTTP ${resp.statusCode}`);
     }
     string body = check resp.getTextPayload();
