@@ -21,6 +21,7 @@
 // or set LOG_LEVEL=DEBUG in your environment and pass --log-level=$LOG_LEVEL
 
 import ballerina/http;
+import ballerina/lang.'array as langarray;
 import ballerina/log;
 import ballerina/os;
 import ballerina/time;
@@ -230,10 +231,14 @@ function fetchViaGitBlobsApi(string rawUrl, int maxBytes, string ghToken) return
     log:printDebug(string `    [blobs-api:step1] blob SHA=${sha} size=${fileSize}`);
 
     // ── Step 2: Fetch raw blob content via Git Data API ───────────────────────
+    //
+    // Correct media type for the Git Blobs endpoint is "application/vnd.github.raw+json"
+    // (NOT "application/vnd.github.raw" which is for the Contents API).
+    // If GitHub still returns the default base64 JSON envelope, we decode it below.
     string blobUrl = string `https://api.github.com/repos/${owner}/${repo}/git/blobs/${sha}`;
     map<string|string[]> blobHeaders = {
         "User-Agent": "openapi-spec-finder/1.0",
-        "Accept":     "application/vnd.github.raw"
+        "Accept":     "application/vnd.github.raw+json"
     };
     if ghToken.length() > 0 {
         blobHeaders["Authorization"] = string `Bearer ${ghToken}`;
@@ -255,13 +260,67 @@ function fetchViaGitBlobsApi(string rawUrl, int maxBytes, string ghToken) return
         return error(string `Git Blobs API step2: HTTP ${blobResp.statusCode}`);
     }
 
-    // Read full text payload then cap to maxBytes.
-    // For a 3-4 MB spec (e.g. Slack) this is a small memory cost that's
-    // acceptable since we only reach here for files that failed Contents API.
     string blobBody = check blobResp.getTextPayload();
+    log:printDebug(string `    [blobs-api:step2] received ${blobBody.length()} bytes`);
+
+    // ── Base64 fallback ───────────────────────────────────────────────────────
+    // If GitHub returned the default JSON blob envelope (encoding: base64) instead
+    // of raw content, decode the base64 content ourselves.
+    // This happens when the Accept header isn't honoured or the response is the
+    // default format: {"sha":"...","content":"base64...","encoding":"base64"}
+    if blobBody.trim().startsWith("{") && blobBody.includes("\"encoding\"") {
+        log:printDebug("    [blobs-api:step2] response looks like JSON blob envelope — attempting base64 decode");
+        string? decoded = decodeGitHubBlobBase64(blobBody, maxBytes);
+        if decoded is string {
+            log:printInfo(string `    [blobs-api:step2] base64 decode succeeded — returning ${decoded.length()} bytes`);
+            return decoded;
+        }
+        log:printWarn("    [blobs-api:step2] base64 decode failed — returning raw response (looksLikeSpec may reject it)");
+    }
+
     string result = blobBody.length() > maxBytes ? blobBody.substring(0, maxBytes) : blobBody;
-    log:printDebug(string `    [blobs-api:step2] read ${blobBody.length()} bytes, returning ${result.length()}`);
+    log:printDebug(string `    [blobs-api:step2] returning ${result.length()} bytes (raw)`);
     return result;
+}
+
+// ─── Base64 blob decoder ──────────────────────────────────────────────────────
+//
+// GitHub's default Blobs API response wraps content as base64:
+//   { "sha": "...", "content": "eyJzd2FnZ2VyIjog...\n...", "encoding": "base64" }
+//
+// This function parses that envelope and returns the decoded string content,
+// capped at maxBytes. Returns () if the body is not a base64 blob envelope or
+// if decoding fails.
+
+function decodeGitHubBlobBase64(string jsonBody, int maxBytes) returns string? {
+    do {
+        json parsed = check jsonBody.fromJsonString();
+        if !(parsed is map<json>) { return (); }
+
+        json? enc = parsed["encoding"];
+        json? cnt = parsed["content"];
+
+        if enc != "base64" { return (); }
+        if !(cnt is string) { return (); }
+
+        // GitHub chunks base64 with embedded newlines — strip them before decoding
+        string cleanB64 = re `[\n\r\s]`.replaceAll(<string>cnt, "");
+        log:printDebug(string `    [base64-decode] clean base64 length: ${cleanB64.length()}`);
+
+        // To get maxBytes of decoded content we need at most ceil(maxBytes/3)*4 base64 chars
+        // (4 base64 chars → 3 decoded bytes). Add a small margin.
+        int b64Limit = (maxBytes / 3 + 1) * 4 + 4;
+        string b64Slice = cleanB64.length() > b64Limit ? cleanB64.substring(0, b64Limit) : cleanB64;
+
+        byte[] decoded = check langarray:fromBase64(b64Slice);
+        string rawStr = check string:fromBytes(decoded);
+        string capped = rawStr.length() > maxBytes ? rawStr.substring(0, maxBytes) : rawStr;
+        log:printDebug(string `    [base64-decode] decoded ${decoded.length()} bytes, returning ${capped.length()}`);
+        return capped;
+    } on fail error e {
+        log:printDebug(string `    [base64-decode] failed: ${e.message()}`);
+        return ();
+    }
 }
 
 // ─── Claude API call ──────────────────────────────────────────────────────────
