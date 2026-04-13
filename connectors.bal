@@ -64,7 +64,7 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── RabbitMQ ─────────────────────────────────────────────────────────────
     // ballerinax/rabbitmq  →  RabbitMQ Management HTTP API
-    //{name: "RabbitMQ",                      docsUrl: "https://www.rabbitmq.com/docs/management",                                                                       targetTitle: ()},
+    {name: "RabbitMQ",                      docsUrl: "https://www.rabbitmq.com/docs/management",                                                                       targetTitle: ()}
 
     // ── Snowflake ────────────────────────────────────────────────────────────
     // ballerinax/snowflake  →  Snowflake SQL REST API reference
@@ -92,7 +92,7 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── FHIR ─────────────────────────────────────────────────────────────────
     // ballerinax/health.clients.fhir  →  HL7 FHIR R4 RESTful API specification
-    {name: "FHIR",                          docsUrl: "https://hl7.org/fhir/R4/http.html",                                                                              targetTitle: ()}
+    //{name: "FHIR",                          docsUrl: "https://hl7.org/fhir/R4/http.html",                                                                              targetTitle: ()}
 
     // ── AI Anthropic ─────────────────────────────────────────────────────────
     // ballerinax/ai.anthropic  →  Anthropic Messages API

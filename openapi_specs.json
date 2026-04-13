@@ -198,14 +198,14 @@
         "name": "RabbitMQ",
         "docsUrl": "https://www.rabbitmq.com/docs/management",
         "targetTitle": null,
-        "specUrl": null,
-        "specRepo": null,
+        "specUrl": "https://raw.githubusercontent.com/thinkco/rabbitmq-httpclient-openapi/master/rabbitmq.3.7.1.oas2.yaml",
+        "specRepo": "thinkco/rabbitmq-httpclient-openapi",
         "title": null,
         "apiVersion": null,
-        "format": null,
-        "status": "not_found",
-        "checkedAt": "2026-04-13T04:53:23.788679Z",
-        "elapsedSeconds": 56.0
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-13T15:56:40.807809Z",
+        "elapsedSeconds": 22.4
     },
     {
         "name": "Snowflake",
