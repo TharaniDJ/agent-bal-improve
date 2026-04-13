@@ -16,19 +16,19 @@ public final Connector[] & readonly ALL_CONNECTORS = [
     // ── Java JDBC ────────────────────────────────────────────────────────────
     // ballerinax/java.jdbc  →  Jakarta EE JDBC specification (no vendor OpenAPI;
     // JDBC is a Java API, not a REST API with an OpenAPI spec)
-    {name: "Java JDBC",                     docsUrl: "https://docs.oracle.com/en/java/jakarta/specifications/jdbc/",                                                   targetTitle: ()},
+    //{name: "Java JDBC",                     docsUrl: "https://docs.oracle.com/en/java/jakarta/specifications/jdbc/",                                                   targetTitle: ()},
 
     // ── Salesforce ───────────────────────────────────────────────────────────
     // ballerinax/salesforce  →  Salesforce REST API
-    {name: "Salesforce",                    docsUrl: "https://developer.salesforce.com/docs/apis",                                                                     targetTitle: ()},
+    //{name: "Salesforce",                    docsUrl: "https://developer.salesforce.com/docs/apis",                                                                     targetTitle: ()},
 
     // ── MySQL ────────────────────────────────────────────────────────────────
     // ballerinax/mysql  →  MySQL Connector/J (JDBC driver; SQL protocol, no OpenAPI)
-    {name: "MySQL",                         docsUrl: "https://dev.mysql.com/doc/connector-j/en/",                                                                      targetTitle: ()},
+    //{name: "MySQL",                         docsUrl: "https://dev.mysql.com/doc/connector-j/en/",                                                                      targetTitle: ()},
 
     // ── Kafka ────────────────────────────────────────────────────────────────
     // ballerinax/kafka  →  Apache Kafka (binary protocol, not REST/OpenAPI)
-    {name: "Kafka",                         docsUrl: "https://kafka.apache.org/documentation/",                                                                        targetTitle: ()},
+    //{name: "Kafka",                         docsUrl: "https://kafka.apache.org/documentation/",                                                                        targetTitle: ()},
 
     // ── Redis ────────────────────────────────────────────────────────────────
     // ballerinax/redis  →  Redis command reference (RESP protocol, no OpenAPI)
@@ -36,7 +36,7 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── PostgreSQL ───────────────────────────────────────────────────────────
     // ballerinax/postgresql  →  PostgreSQL docs (JDBC/SQL protocol, no OpenAPI)
-    {name: "PostgreSQL",                    docsUrl: "https://www.postgresql.org/docs/current/",                                                                       targetTitle: ()},
+    //{name: "PostgreSQL",                    docsUrl: "https://www.postgresql.org/docs/current/",                                                                       targetTitle: ()},
 
     // ── SAP ──────────────────────────────────────────────────────────────────
     // ballerinax/sap  →  SAP Business Accelerator Hub (OpenAPI specs per service)
@@ -44,19 +44,19 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── MSSQL ────────────────────────────────────────────────────────────────
     // ballerinax/mssql  →  Microsoft JDBC Driver for SQL Server
-    {name: "MSSQL",                         docsUrl: "https://learn.microsoft.com/en-us/sql/connect/jdbc/microsoft-jdbc-driver-for-sql-server",                        targetTitle: ()},
+    //{name: "MSSQL",                         docsUrl: "https://learn.microsoft.com/en-us/sql/connect/jdbc/microsoft-jdbc-driver-for-sql-server",                        targetTitle: ()},
 
     // ── Confluent Schema Registry ────────────────────────────────────────────
     // ballerinax/confluent.schemaregistry  →  Schema Registry REST API reference
-    {name: "Confluent Schema Registry",     docsUrl: "https://docs.confluent.io/platform/current/schema-registry/develop/api.html",                                    targetTitle: ()},
+    //{name: "Confluent Schema Registry",     docsUrl: "https://docs.confluent.io/platform/current/schema-registry/develop/api.html",                                    targetTitle: ()},
 
     // ── CDC (Change Data Capture) ────────────────────────────────────────────
     // ballerinax/cdc  →  Debezium documentation (the underlying CDC engine)
-    {name: "CDC",                           docsUrl: "https://debezium.io/documentation/reference/stable/",                                                            targetTitle: ()},
+    //{name: "CDC",                           docsUrl: "https://debezium.io/documentation/reference/stable/",                                                            targetTitle: ()},
 
     // ── Confluent Avro SerDes ────────────────────────────────────────────────
     // ballerinax/confluent.cavroserdes  →  Avro SerDes for Confluent Schema Registry
-    {name: "Confluent Avro SerDes",         docsUrl: "https://docs.confluent.io/platform/current/schema-registry/fundamentals/serdes-develop/serdes-avro.html",        targetTitle: ()},
+    //{name: "Confluent Avro SerDes",         docsUrl: "https://docs.confluent.io/platform/current/schema-registry/fundamentals/serdes-develop/serdes-avro.html",        targetTitle: ()},
 
     // ── OpenAI Chat ──────────────────────────────────────────────────────────
     // ballerinax/openai.chat  →  OpenAI Chat Completions API reference
@@ -64,7 +64,7 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── RabbitMQ ─────────────────────────────────────────────────────────────
     // ballerinax/rabbitmq  →  RabbitMQ Management HTTP API
-    {name: "RabbitMQ",                      docsUrl: "https://www.rabbitmq.com/docs/management",                                                                       targetTitle: ()},
+    //{name: "RabbitMQ",                      docsUrl: "https://www.rabbitmq.com/docs/management",                                                                       targetTitle: ()},
 
     // ── Snowflake ────────────────────────────────────────────────────────────
     // ballerinax/snowflake  →  Snowflake SQL REST API reference
@@ -88,11 +88,11 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── AI Pinecone ──────────────────────────────────────────────────────────
     // ballerinax/ai.pinecone  →  Pinecone Vector Database API reference
-    {name: "AI Pinecone",                   docsUrl: "https://docs.pinecone.io/reference/api/introduction",                                                            targetTitle: ()},
+    //{name: "AI Pinecone",                   docsUrl: "https://docs.pinecone.io/reference/api/introduction",                                                            targetTitle: ()},
 
     // ── FHIR ─────────────────────────────────────────────────────────────────
     // ballerinax/health.clients.fhir  →  HL7 FHIR R4 RESTful API specification
-    {name: "FHIR",                          docsUrl: "https://hl7.org/fhir/R4/http.html",                                                                              targetTitle: ()},
+    //{name: "FHIR",                          docsUrl: "https://hl7.org/fhir/R4/http.html",                                                                              targetTitle: ()},
 
     // ── AI Anthropic ─────────────────────────────────────────────────────────
     // ballerinax/ai.anthropic  →  Anthropic Messages API
@@ -112,11 +112,11 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── DeepSeek AI Connector ────────────────────────────────────────────────
     // ballerinax/ai.deepseek  →  DeepSeek API reference
-    {name: "DeepSeek AI Connector",         docsUrl: "https://api-docs.deepseek.com/",                                                                                 targetTitle: ()},
+    //{name: "DeepSeek AI Connector",         docsUrl: "https://api-docs.deepseek.com/",                                                                                 targetTitle: ()},
 
     // ── Stripe ───────────────────────────────────────────────────────────────
     // ballerinax/stripe  →  Stripe API reference
-    {name: "Stripe",                        docsUrl: "https://stripe.com/docs/api",                                                                                    targetTitle: ()},
+    {name: "Stripe",                        docsUrl: "https://github.com/stripe/openapi",                                                                                    targetTitle: ()},
 
     // ── Slack ────────────────────────────────────────────────────────────────
     // ballerinax/slack  →  Slack Web API (OpenAPI spec in slackapi/slack-api-specs)

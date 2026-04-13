@@ -362,5 +362,31 @@
         "status": "not_found",
         "checkedAt": "2026-04-13T04:55:23.394528Z",
         "elapsedSeconds": 39.8
+    },
+    {
+        "name": "Stripe",
+        "docsUrl": "https://github.com/stripe/openapi",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.yaml",
+        "specRepo": "stripe/openapi",
+        "title": null,
+        "apiVersion": null,
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-13T05:14:16.293786Z",
+        "elapsedSeconds": 19.1
+    },
+    {
+        "name": "Slack",
+        "docsUrl": "https://github.com/slackapi/slack-api-specs",
+        "targetTitle": "Slack Web API",
+        "specUrl": "https://raw.githubusercontent.com/slackapi/slack-api-specs/master/web-api/slack_web_openapi_v2.json",
+        "specRepo": "slackapi/slack-api-specs",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-13T05:14:38.070166Z",
+        "elapsedSeconds": 21.7
     }
 ]
