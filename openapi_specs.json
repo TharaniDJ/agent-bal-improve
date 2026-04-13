@@ -48,21 +48,21 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-12T12:36:10.983765Z",
-        "elapsedSeconds": 18.8
+        "checkedAt": "2026-04-13T04:45:52.873578Z",
+        "elapsedSeconds": 30.4
     },
     {
         "name": "Salesforce",
         "docsUrl": "https://developer.salesforce.com/docs/apis",
         "targetTitle": null,
-        "specUrl": null,
-        "specRepo": null,
+        "specUrl": "https://raw.githubusercontent.com/SalesforceCommerceCloud/commerce-sdk/main/apis/shopper-baskets-oas-2.5.1/shopper-baskets-oas-v2-public.yaml",
+        "specRepo": "SalesforceCommerceCloud/commerce-sdk",
         "title": null,
         "apiVersion": null,
-        "format": null,
-        "status": "not_found",
-        "checkedAt": "2026-04-12T12:36:51.739255Z",
-        "elapsedSeconds": 40.8
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-13T04:47:11.270426Z",
+        "elapsedSeconds": 78.4
     },
     {
         "name": "MySQL",
@@ -74,8 +74,8 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-12T12:37:14.165949Z",
-        "elapsedSeconds": 22.4
+        "checkedAt": "2026-04-13T04:47:43.616882Z",
+        "elapsedSeconds": 32.3
     },
     {
         "name": "Kafka",
@@ -87,8 +87,8 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-12T12:37:59.733384Z",
-        "elapsedSeconds": 45.6
+        "checkedAt": "2026-04-13T04:48:26.416020Z",
+        "elapsedSeconds": 42.8
     },
     {
         "name": "Redis",
@@ -113,8 +113,8 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-12T12:39:01.356825Z",
-        "elapsedSeconds": 26.0
+        "checkedAt": "2026-04-13T04:48:43.047554Z",
+        "elapsedSeconds": 16.6
     },
     {
         "name": "SAP",
@@ -133,14 +133,14 @@
         "name": "MSSQL",
         "docsUrl": "https://learn.microsoft.com/en-us/sql/connect/jdbc/microsoft-jdbc-driver-for-sql-server",
         "targetTitle": null,
-        "specUrl": null,
-        "specRepo": null,
+        "specUrl": "https://raw.githubusercontent.com/Azure/azure-rest-api-specs/main/specification/sql/resource-manager/Microsoft.Sql/Legacy/stable/2014-04-01/sql.core.json",
+        "specRepo": "Azure/azure-rest-api-specs",
         "title": null,
         "apiVersion": null,
-        "format": null,
-        "status": "not_found",
-        "checkedAt": "2026-04-12T12:40:19.925916Z",
-        "elapsedSeconds": 43.6
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-13T04:49:35.292375Z",
+        "elapsedSeconds": 52.2
     },
     {
         "name": "Confluent Schema Registry",
@@ -152,8 +152,8 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-12T12:41:06.207491Z",
-        "elapsedSeconds": 46.3
+        "checkedAt": "2026-04-13T04:50:33.793512Z",
+        "elapsedSeconds": 58.5
     },
     {
         "name": "CDC",
@@ -165,8 +165,8 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-12T12:41:43.057693Z",
-        "elapsedSeconds": 36.8
+        "checkedAt": "2026-04-13T04:51:24.903088Z",
+        "elapsedSeconds": 51.1
     },
     {
         "name": "Confluent Avro SerDes",
@@ -178,8 +178,8 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-12T12:42:25.347666Z",
-        "elapsedSeconds": 42.3
+        "checkedAt": "2026-04-13T04:52:27.798540Z",
+        "elapsedSeconds": 62.9
     },
     {
         "name": "OpenAI Chat",
@@ -204,8 +204,8 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-12T12:43:59.248970Z",
-        "elapsedSeconds": 51.7
+        "checkedAt": "2026-04-13T04:53:23.788679Z",
+        "elapsedSeconds": 56.0
     },
     {
         "name": "Snowflake",
@@ -276,14 +276,14 @@
         "name": "AI Pinecone",
         "docsUrl": "https://docs.pinecone.io/reference/api/introduction",
         "targetTitle": null,
-        "specUrl": null,
-        "specRepo": null,
+        "specUrl": "https://raw.githubusercontent.com/pinecone-io/pinecone-api/main/2025-04/db_control_2025-04.oas.yaml",
+        "specRepo": "pinecone-io/pinecone-api",
         "title": null,
         "apiVersion": null,
-        "format": null,
-        "status": "not_found",
-        "checkedAt": "2026-04-12T12:47:45.844056Z",
-        "elapsedSeconds": 38.6
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-13T04:53:56.491317Z",
+        "elapsedSeconds": 32.7
     },
     {
         "name": "FHIR",
@@ -295,8 +295,8 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-12T12:48:33.888707Z",
-        "elapsedSeconds": 48.0
+        "checkedAt": "2026-04-13T04:54:43.559733Z",
+        "elapsedSeconds": 47.1
     },
     {
         "name": "AI Anthropic",
@@ -360,7 +360,7 @@
         "apiVersion": null,
         "format": null,
         "status": "not_found",
-        "checkedAt": "2026-04-12T12:51:08.208202Z",
-        "elapsedSeconds": 41.5
+        "checkedAt": "2026-04-13T04:55:23.394528Z",
+        "elapsedSeconds": 39.8
     }
 ]

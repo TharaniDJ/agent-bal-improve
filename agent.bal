@@ -4,6 +4,8 @@
 //   - callClaude()                — Anthropic API call with timing logs
 //   - httpGetBody()               — raw HTTP GET, SPA fallback via browser service
 //   - httpGetBodyPartial()        — partial HTTP GET; handles large GitHub files via Git Blobs API
+//   - httpGetBodyFull()           — full HTTP GET for Java parser validation (no byte cap, 60 s timeout)
+//   - httpGetBodyPlain()          — plain HTTP GET with body cap
 //   - headOk()                    — HEAD check with fallback GET
 //   - parseGitHubRawUrl()         — decomposes raw.githubusercontent.com URLs
 //   - fetchViaGitBlobsApi()       — uses Git Data API for files > 1 MB (avoids CDN SSL issues)
@@ -16,6 +18,7 @@
 //   HEAD checks               : 12 s  (up from 10 s)
 //   Claude API                : 120 s (up from 90 s)
 //   Git Blobs API fallback    : 30 s
+//   Full spec fetch (Java)    : 60 s  (httpGetBodyFull — no byte cap)
 //
 // Enable debug mode: bal run --log-level=DEBUG
 // or set LOG_LEVEL=DEBUG in your environment and pass --log-level=$LOG_LEVEL
@@ -165,15 +168,6 @@ isolated function parseGitHubRawUrl(string rawUrl) returns GitHubRawUrl? {
 }
 
 // ─── Git Blobs API fallback for files > 1 MB ─────────────────────────────────
-//
-// GitHub's Contents API returns an error for files > 1 MB even with
-// "Accept: application/vnd.github.raw". This function uses the Git Data API
-// (blobs endpoint) which handles files up to 100 MB, all from api.github.com
-// so it avoids the raw.githubusercontent.com CDN SSL issues in this environment.
-//
-// Two-step process:
-//   1. GET /repos/OWNER/REPO/contents/PATH?ref=BRANCH  → extract blob SHA
-//   2. GET /repos/OWNER/REPO/git/blobs/SHA with Accept: raw → return content
 
 function fetchViaGitBlobsApi(string rawUrl, int maxBytes, string ghToken) returns string|error {
     log:printDebug(string `    [blobs-api] starting Git Blobs API fallback for: ${rawUrl}`);
@@ -193,7 +187,6 @@ function fetchViaGitBlobsApi(string rawUrl, int maxBytes, string ghToken) return
     }
 
     // ── Step 1: Get blob SHA from Contents API metadata ──────────────────────
-    // (Without Accept: raw — returns JSON metadata including sha for any size)
     string metaUrl = string `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
     log:printDebug(string `    [blobs-api:step1] fetching metadata: ${metaUrl}`);
     time:Utc t0 = time:utcNow();
@@ -231,10 +224,6 @@ function fetchViaGitBlobsApi(string rawUrl, int maxBytes, string ghToken) return
     log:printDebug(string `    [blobs-api:step1] blob SHA=${sha} size=${fileSize}`);
 
     // ── Step 2: Fetch raw blob content via Git Data API ───────────────────────
-    //
-    // Correct media type for the Git Blobs endpoint is "application/vnd.github.raw+json"
-    // (NOT "application/vnd.github.raw" which is for the Contents API).
-    // If GitHub still returns the default base64 JSON envelope, we decode it below.
     string blobUrl = string `https://api.github.com/repos/${owner}/${repo}/git/blobs/${sha}`;
     map<string|string[]> blobHeaders = {
         "User-Agent": "openapi-spec-finder/1.0",
@@ -264,10 +253,6 @@ function fetchViaGitBlobsApi(string rawUrl, int maxBytes, string ghToken) return
     log:printDebug(string `    [blobs-api:step2] received ${blobBody.length()} bytes`);
 
     // ── Base64 fallback ───────────────────────────────────────────────────────
-    // If GitHub returned the default JSON blob envelope (encoding: base64) instead
-    // of raw content, decode the base64 content ourselves.
-    // This happens when the Accept header isn't honoured or the response is the
-    // default format: {"sha":"...","content":"base64...","encoding":"base64"}
     if blobBody.trim().startsWith("{") && blobBody.includes("\"encoding\"") {
         log:printDebug("    [blobs-api:step2] response looks like JSON blob envelope — attempting base64 decode");
         string? decoded = decodeGitHubBlobBase64(blobBody, maxBytes);
@@ -284,13 +269,6 @@ function fetchViaGitBlobsApi(string rawUrl, int maxBytes, string ghToken) return
 }
 
 // ─── Base64 blob decoder ──────────────────────────────────────────────────────
-//
-// GitHub's default Blobs API response wraps content as base64:
-//   { "sha": "...", "content": "eyJzd2FnZ2VyIjog...\n...", "encoding": "base64" }
-//
-// This function parses that envelope and returns the decoded string content,
-// capped at maxBytes. Returns () if the body is not a base64 blob envelope or
-// if decoding fails.
 
 function decodeGitHubBlobBase64(string jsonBody, int maxBytes) returns string? {
     do {
@@ -303,12 +281,9 @@ function decodeGitHubBlobBase64(string jsonBody, int maxBytes) returns string? {
         if enc != "base64" { return (); }
         if !(cnt is string) { return (); }
 
-        // GitHub chunks base64 with embedded newlines — strip them before decoding
         string cleanB64 = re `[\n\r\s]`.replaceAll(<string>cnt, "");
         log:printDebug(string `    [base64-decode] clean base64 length: ${cleanB64.length()}`);
 
-        // To get maxBytes of decoded content we need at most ceil(maxBytes/3)*4 base64 chars
-        // (4 base64 chars → 3 decoded bytes). Add a small margin.
         int b64Limit = (maxBytes / 3 + 1) * 4 + 4;
         string b64Slice = cleanB64.length() > b64Limit ? cleanB64.substring(0, b64Limit) : cleanB64;
 
@@ -373,8 +348,6 @@ isolated function isRawContentUrl(string rawUrl) returns boolean {
 }
 
 // Fetches a URL via the local browser service (browser-service/server.js).
-// The service uses Playwright/Chromium to render JS-heavy SPAs.
-// Endpoint: GET http://localhost:3456/fetch?url=<encoded-url>
 function httpGetBodyViaBrowserService(string targetUrl) returns string|error {
     log:printInfo(string `    [browser-service] ${targetUrl}`);
     log:printDebug(string `    [browser-service:debug] connecting to localhost:3456`);
@@ -429,11 +402,6 @@ function httpGetBody(string fetchUrl) returns string|error {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
-    // Raw content (GitHub API, spec files): plain HTTP only, no browser needed.
-    // Use Range header to cap response at SPEC_SNIPPET_BYTES — the Claude tool
-    // only needs the first 12 KB to detect openapi/swagger fields.
-    // This prevents slow servers from blocking for minutes on large spec files.
-    // Servers that don't support Range respond with 200 + full body (still works).
     if isRawContentUrl(fetchUrl) {
         int snapCap = SPEC_SNIPPET_BYTES - 1;
         headers["Range"] = string `bytes=0-${snapCap}`;
@@ -447,7 +415,6 @@ function httpGetBody(string fetchUrl) returns string|error {
         http:Response resp = check cl->get("", headers);
         decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
         log:printDebug(string `    [httpGetBody:debug] raw response status=${resp.statusCode} elapsed=${elapsed}s`);
-        // Accept 200 OK and 206 Partial Content (Range honoured)
         if resp.statusCode != 200 && resp.statusCode != 206 {
             return error(string `HTTP ${resp.statusCode}`);
         }
@@ -456,10 +423,6 @@ function httpGetBody(string fetchUrl) returns string|error {
         return body;
     }
 
-    // HTML docs pages:
-    //   1. Try plain HTTP first (fast, static sites)
-    //   2. If < MIN_USEFUL_TEXT_LENGTH chars → SPA → try browser service
-    //   3. Fall back to plain HTTP result if browser service fails
     log:printDebug(string `    [httpGetBody:debug] HTML page — trying plain HTTP: ${fetchUrl}`);
     string|error plainResult = httpGetBodyPlain(fetchUrl, headers, 100000);
 
@@ -514,6 +477,84 @@ function httpGetBodyPlain(string fetchUrl, map<string|string[]> headers, int max
     return result;
 }
 
+// ─── Full content fetch for Java parser validation ────────────────────────────
+//
+// Unlike httpGetBodyPartial (which caps at 100 KB for Claude's fetch_page tool),
+// this function fetches the COMPLETE file so the Java OpenAPI parser receives
+// a well-formed, unparsed document.
+//
+// Safety limits (defence-in-depth — Content-Length is checked by callers first):
+//   - Timeout      : 60 s  (generous for slow CDNs serving large YAML files)
+//   - Max body cap : 20 MB (hard cap at the read layer; no real spec exceeds this)
+//
+// GitHub raw URLs are converted to the Contents API (same as httpGetBodyPartial)
+// and the Git Blobs API fallback is used for files > 1 MB.
+//
+// For non-GitHub URLs a Range header is NOT sent — we want the full body.
+
+const int FULL_FETCH_MAX_BYTES = 20000000;   // 20 MB hard cap
+
+function httpGetBodyFull(string rawUrl) returns string|error {
+    string ghToken = os:getEnv("GITHUB_TOKEN");
+    map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
+
+    string fetchUrl = rawUrl;
+    boolean isGitHubRaw = rawUrl.includes("raw.githubusercontent.com/");
+
+    if isGitHubRaw {
+        // Convert to Contents API so the Git Blobs fallback path is available
+        // for files > 1 MB (same logic as httpGetBodyPartial).
+        fetchUrl = rawUrlToApiUrl(rawUrl);
+        headers["Accept"] = "application/vnd.github.raw";
+        log:printDebug(string `    [full-fetch:debug] GitHub raw → Contents API: ${fetchUrl}`);
+    }
+
+    if (fetchUrl.includes("api.github.com") || rawUrl.includes("raw.githubusercontent.com")) && ghToken.length() > 0 {
+        headers["Authorization"] = string `Bearer ${ghToken}`;
+    }
+
+    // No Range header — we want every byte for the Java parser.
+
+    log:printDebug(string `    [full-fetch:debug] fetching full body: ${fetchUrl}`);
+    time:Utc t0 = time:utcNow();
+
+    http:Client cl = check new (fetchUrl, {
+        followRedirects: {enabled: true, maxCount: 5},
+        timeout: 60,                          // 60 s — generous for large specs
+        secureSocket: {enable: true}
+    });
+    http:Response resp = check cl->get("", headers);
+    decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
+    log:printDebug(string `    [full-fetch:debug] status=${resp.statusCode} elapsed=${elapsed}s`);
+
+    if resp.statusCode != 200 && resp.statusCode != 206 {
+        // Check for GitHub "too large" error and fall back to Git Blobs API.
+        if isGitHubRaw && resp.statusCode == 403 {
+            log:printInfo(string `    [full-fetch] Contents API 403 — switching to Git Blobs API: ${rawUrl}`);
+            return fetchViaGitBlobsApi(rawUrl, FULL_FETCH_MAX_BYTES, ghToken);
+        }
+        return error(string `HTTP ${resp.statusCode}`);
+    }
+
+    string body = check resp.getTextPayload();
+    log:printDebug(string `    [full-fetch:debug] body length=${body.length()}`);
+
+    // ── Detect GitHub "too large" JSON error in the body ──────────────────────
+    if isGitHubRaw && isGitHubTooLargeError(body) {
+        log:printInfo(string `    [full-fetch] Contents API: file too large (>1 MB) — switching to Git Blobs API`);
+        return fetchViaGitBlobsApi(rawUrl, FULL_FETCH_MAX_BYTES, ghToken);
+    }
+
+    // ── Hard cap (defence-in-depth) ───────────────────────────────────────────
+    if body.length() > FULL_FETCH_MAX_BYTES {
+        log:printWarn(string `    [full-fetch] body exceeds ${FULL_FETCH_MAX_BYTES} bytes — capping (this should not happen for real specs)`);
+        return body.substring(0, FULL_FETCH_MAX_BYTES);
+    }
+
+    log:printDebug(string `    [full-fetch:debug] returning ${body.length()} bytes in ${elapsed}s`);
+    return body;
+}
+
 function headOk(string headUrl) returns boolean {
     log:printDebug(string `    [headOk:debug] HEAD ${headUrl}`);
     time:Utc t0 = time:utcNow();
@@ -549,14 +590,8 @@ function headOk(string headUrl) returns boolean {
 
 // ─── Partial fetch with large-file GitHub awareness ───────────────────────────
 //
-// For raw.githubusercontent.com URLs:
-//   1. Convert to GitHub Contents API URL and set Accept: vnd.github.raw
-//   2. Fetch — works for files up to 1 MB
-//   3. If the response contains the GitHub "too large" error, fall back to
-//      the Git Blobs API (handles up to 100 MB) to get the first maxBytes
-//
-// This fixes the Slack / large-spec failure where the Contents API returned
-// an error JSON instead of spec content.
+// Used by the Claude fetch_page tool and direct-verify — fetches up to maxBytes.
+// For Java validation use httpGetBodyFull instead.
 
 function httpGetBodyPartial(string rawUrl, int maxBytes) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
@@ -575,9 +610,6 @@ function httpGetBodyPartial(string rawUrl, int maxBytes) returns string|error {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
-    // For non-GitHub direct spec URLs (e.g. vendor portals), add a Range header
-    // so slow servers streaming large files don't block for minutes.
-    // Servers that ignore Range respond 200 + full body — still safe.
     if !isGitHubRaw && !fetchUrl.includes("api.github.com") {
         int rangeEnd = maxBytes - 1;
         headers["Range"] = string `bytes=0-${rangeEnd}`;
@@ -596,16 +628,12 @@ function httpGetBodyPartial(string rawUrl, int maxBytes) returns string|error {
     decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
     log:printDebug(string `    [partial-fetch:debug] status=${resp.statusCode} elapsed=${elapsed}s`);
 
-    // Accept 200 OK and 206 Partial Content (Range header honoured)
     if resp.statusCode != 200 && resp.statusCode != 206 {
         return error(string `HTTP ${resp.statusCode}`);
     }
     string body = check resp.getTextPayload();
     log:printDebug(string `    [partial-fetch:debug] body length=${body.length()}`);
 
-    // ── Detect GitHub "blob too large" error ─────────────────────────────────
-    // The Contents API returns this JSON for files > 1 MB even with Accept: raw:
-    //   {"message":"This API returns blobs up to 1 MB...","errors":[{"code":"too_large"}]}
     if isGitHubRaw && isGitHubTooLargeError(body) {
         log:printInfo(string `    [partial-fetch] Contents API: file too large (>1 MB) — switching to Git Blobs API`);
         log:printDebug(string `    [partial-fetch:debug] too-large error body snippet: ${body.substring(0, body.length() > 200 ? 200 : body.length())}`);
@@ -622,8 +650,6 @@ isolated function isGitHubTooLargeError(string body) returns boolean {
     if body.includes("\"too_large\"") { return true; }
     if body.includes("too large to fetch via the API") { return true; }
     if body.includes("larger than") && body.includes("blob") { return true; }
-    // Contents API returns metadata JSON (with empty "content") for files 1-100 MB
-    // Detect: content field is empty but size is large
     if body.includes("\"encoding\":\"none\"") && body.includes("\"content\":\"\"") { return true; }
     return false;
 }
@@ -899,7 +925,6 @@ isolated function jsonArr(string[] items) returns string {
 
 // Returns a compact timestamp string for debug logs.
 isolated function timeNow() returns string {
-    // Uses wall-clock seconds as a simple prefix; full timestamps appear in the log framework.
     return time:utcToString(time:utcNow());
 }
 

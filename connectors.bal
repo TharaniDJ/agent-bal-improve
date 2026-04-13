@@ -3,15 +3,15 @@
 public final Connector[] & readonly ALL_CONNECTORS = [
     // ── Twilio ──────────────────────────────────────────────────────────────
     // ballerinax/twilio  →  Twilio REST API
-    {name: "Twilio",                        docsUrl: "https://www.twilio.com/docs/usage/api",                                                                          targetTitle: ()},
+    //{name: "Twilio",                        docsUrl: "https://www.twilio.com/docs/usage/api",                                                                          targetTitle: ()},
 
     // ── Google Sheets ────────────────────────────────────────────────────────
     // ballerinax/googleapis.sheets  →  Google Sheets API v4
-    {name: "GoogleAPIs Sheets",             docsUrl: "https://developers.google.com/sheets/api/reference/rest",                                                        targetTitle: ()},
+    //{name: "GoogleAPIs Sheets",             docsUrl: "https://developers.google.com/sheets/api/reference/rest",                                                        targetTitle: ()},
 
     // ── Twitter ──────────────────────────────────────────────────────────────
     // ballerinax/twitter  →  Twitter v2 API (OpenAPI spec lives in xdevplatform)
-    {name: "Twitter",                       docsUrl: "https://github.com/xdevplatform",                                                                                targetTitle: ()},
+    //{name: "Twitter",                       docsUrl: "https://github.com/xdevplatform",                                                                                targetTitle: ()},
 
     // ── Java JDBC ────────────────────────────────────────────────────────────
     // ballerinax/java.jdbc  →  Jakarta EE JDBC specification (no vendor OpenAPI;
@@ -32,7 +32,7 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── Redis ────────────────────────────────────────────────────────────────
     // ballerinax/redis  →  Redis command reference (RESP protocol, no OpenAPI)
-    {name: "Redis",                         docsUrl: "https://redis.io/docs/latest/commands/",                                                                         targetTitle: ()},
+    //{name: "Redis",                         docsUrl: "https://redis.io/docs/latest/commands/",                                                                         targetTitle: ()},
 
     // ── PostgreSQL ───────────────────────────────────────────────────────────
     // ballerinax/postgresql  →  PostgreSQL docs (JDBC/SQL protocol, no OpenAPI)
@@ -40,7 +40,7 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── SAP ──────────────────────────────────────────────────────────────────
     // ballerinax/sap  →  SAP Business Accelerator Hub (OpenAPI specs per service)
-    {name: "SAP",                           docsUrl: "https://api.sap.com/",                                                                                           targetTitle: ()},
+    //{name: "SAP",                           docsUrl: "https://api.sap.com/",                                                                                           targetTitle: ()},
 
     // ── MSSQL ────────────────────────────────────────────────────────────────
     // ballerinax/mssql  →  Microsoft JDBC Driver for SQL Server
@@ -60,7 +60,7 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── OpenAI Chat ──────────────────────────────────────────────────────────
     // ballerinax/openai.chat  →  OpenAI Chat Completions API reference
-    {name: "OpenAI Chat",                   docsUrl: "https://platform.openai.com/docs/api-reference/chat",                                                            targetTitle: ()},
+    //{name: "OpenAI Chat",                   docsUrl: "https://platform.openai.com/docs/api-reference/chat",                                                            targetTitle: ()},
 
     // ── RabbitMQ ─────────────────────────────────────────────────────────────
     // ballerinax/rabbitmq  →  RabbitMQ Management HTTP API
@@ -68,23 +68,23 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── Snowflake ────────────────────────────────────────────────────────────
     // ballerinax/snowflake  →  Snowflake SQL REST API reference
-    {name: "Snowflake",                     docsUrl: "https://docs.snowflake.com/en/developer-guide/sql-api/reference",                                                targetTitle: ()},
+    //{name: "Snowflake",                     docsUrl: "https://docs.snowflake.com/en/developer-guide/sql-api/reference",                                                targetTitle: ()},
 
     // ── Oracle DB ────────────────────────────────────────────────────────────
     // ballerinax/oracledb  →  Oracle REST Data Services (ORDS) developer guide
-    {name: "Oracle DB",                     docsUrl: "https://docs.oracle.com/en/database/oracle/oracle-rest-data-services/latest/orddg/index.html",                   targetTitle: ()},
+    //{name: "Oracle DB",                     docsUrl: "https://docs.oracle.com/en/database/oracle/oracle-rest-data-services/latest/orddg/index.html",                   targetTitle: ()},
 
     // ── MongoDB ──────────────────────────────────────────────────────────────
     // ballerinax/mongodb  →  MongoDB Atlas Data API resources
-    {name: "MongoDB",                       docsUrl: "https://www.mongodb.com/docs/atlas/api/data-api-resources/",                                                     targetTitle: ()},
+    //{name: "MongoDB",                       docsUrl: "https://www.mongodb.com/docs/atlas/api/data-api-resources/",                                                     targetTitle: ()},
 
     // ── Azure Storage Service ────────────────────────────────────────────────
     // ballerinax/azure_storage_service  →  Azure Storage REST API reference
-    {name: "Azure Storage Service",         docsUrl: "https://learn.microsoft.com/en-us/rest/api/storageservices/",                                                    targetTitle: ()},
+    //{name: "Azure Storage Service",         docsUrl: "https://learn.microsoft.com/en-us/rest/api/storageservices/",                                                    targetTitle: ()},
 
     // ── AI OpenAI ────────────────────────────────────────────────────────────
     // ballerinax/ai.openai  →  OpenAI platform API reference
-    {name: "AI OpenAI",                     docsUrl: "https://platform.openai.com/docs/api-reference/introduction",                                                    targetTitle: ()},
+    //{name: "AI OpenAI",                     docsUrl: "https://platform.openai.com/docs/api-reference/introduction",                                                    targetTitle: ()},
 
     // ── AI Pinecone ──────────────────────────────────────────────────────────
     // ballerinax/ai.pinecone  →  Pinecone Vector Database API reference
@@ -96,19 +96,19 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── AI Anthropic ─────────────────────────────────────────────────────────
     // ballerinax/ai.anthropic  →  Anthropic Messages API
-    {name: "AI Anthropic",                  docsUrl: "https://docs.anthropic.com/en/api/getting-started",                                                              targetTitle: ()},
+    //{name: "AI Anthropic",                  docsUrl: "https://docs.anthropic.com/en/api/getting-started",                                                              targetTitle: ()},
 
     // ── AI Azure ─────────────────────────────────────────────────────────────
     // ballerinax/ai.azure  →  Azure OpenAI Service REST API reference
-    {name: "AI Azure",                      docsUrl: "https://learn.microsoft.com/en-us/azure/ai-services/openai/reference",                                           targetTitle: ()},
+    //{name: "AI Azure",                      docsUrl: "https://learn.microsoft.com/en-us/azure/ai-services/openai/reference",                                           targetTitle: ()},
 
     // ── AI Ollama ────────────────────────────────────────────────────────────
     // ballerinax/ai.ollama  →  Ollama REST API docs (GitHub)
-    {name: "AI Ollama",                     docsUrl: "https://github.com/ollama/ollama/blob/main/docs/api.md",                                                         targetTitle: ()},
+    //{name: "AI Ollama",                     docsUrl: "https://github.com/ollama/ollama/blob/main/docs/api.md",                                                         targetTitle: ()},
 
     // ── AI Mistral ───────────────────────────────────────────────────────────
     // ballerinax/ai.mistral  →  Mistral AI API reference
-    {name: "AI Mistral",                    docsUrl: "https://docs.mistral.ai/api/",                                                                                   targetTitle: ()},
+    //{name: "AI Mistral",                    docsUrl: "https://docs.mistral.ai/api/",                                                                                   targetTitle: ()},
 
     // ── DeepSeek AI Connector ────────────────────────────────────────────────
     // ballerinax/ai.deepseek  →  DeepSeek API reference

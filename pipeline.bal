@@ -4,7 +4,7 @@
 // Step 1 : stepQuickVerify          — pure HTTP, stable/direct endpoints only
 // Step 2 : stepGithubVersionCheck   — Claude, GitHub-hosted specs with known URL
 // Step 3 : stepDiscovery            — Claude, find candidates from scratch
-// Step 4 : stepContentVerify        — HTTP, confirm candidates via looksLikeSpec
+// Step 4 : stepContentVerify        — HTTP + Java OpenAPI parser validation
 //
 // Enable debug mode: bal run --log-level=DEBUG
 
@@ -251,8 +251,29 @@ function parseStableCheckResult(string text, string fallbackUrl, string? fallbac
         return ();
     }
 
+    // ── Java parser validation ────────────────────────────────────────────────
+    string|error body = httpGetBodyFull(resultUrl);
+    if body is error {
+        log:printWarn(string `  [step1b] content fetch failed for ${resultUrl}: ${body.message()}`);
+        return ();
+    }
+    [boolean, string] [valid, detail] = javaValidateSpec(body);
+    log:printDebug(string `  [step1b:debug] java validation: valid=${valid} detail=${detail}`);
+
+    if detail == "java-validator-unavailable" {
+        if !looksLikeSpec(body) {
+            log:printWarn(string `  [step1b] heuristic rejected ${resultUrl}: content does not look like a spec`);
+            return ();
+        }
+        log:printInfo(string `  [step1b] heuristic accepted (java-validator unavailable): ${resultUrl}`);
+    } else if !valid {
+        log:printWarn(string `  [step1b] Java parser rejected ${resultUrl}: ${detail}`);
+        return ();
+    } else {
+        log:printInfo(string `  [step1b] confirmed valid OpenAPI ${detail}: ${resultUrl}`);
+    }
+
     string fmt = resultUrl.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-    log:printInfo(string `  [step1b] confirmed valid: ${resultUrl}`);
     return {
         specUrl:    resultUrl,
         specRepo:   repo.length() > 0 ? repo : fallbackRepo,
@@ -310,7 +331,7 @@ const string GITHUB_CHECK_SYSTEM_PROMPT =
 public function stepGithubVersionCheck(
     string knownSpecUrl,
     string? knownSpecRepo,
-    string docsUrl,            // <-- NEW: passed so Claude can cross-reference
+    string docsUrl,
     string anthropicKey
 ) returns SpecResult?|string {
 
@@ -462,8 +483,29 @@ function parseGithubCheckResult(string text, string? fallbackRepo) returns SpecR
         return ();
     }
 
+    // ── Java parser validation ────────────────────────────────────────────────
+    string|error body = httpGetBodyFull(resultUrl);
+    if body is error {
+        log:printWarn(string `  [step2] content fetch failed for ${resultUrl}: ${body.message()}`);
+        return ();
+    }
+    [boolean, string] [valid, detail] = javaValidateSpec(body);
+    log:printDebug(string `  [step2:debug] java validation: valid=${valid} detail=${detail}`);
+
+    if detail == "java-validator-unavailable" {
+        if !looksLikeSpec(body) {
+            log:printWarn(string `  [step2] heuristic rejected ${resultUrl}: content does not look like a spec`);
+            return ();
+        }
+        log:printInfo(string `  [step2] heuristic accepted (java-validator unavailable): ${resultUrl}`);
+    } else if !valid {
+        log:printWarn(string `  [step2] Java parser rejected ${resultUrl}: ${detail}`);
+        return ();
+    } else {
+        log:printInfo(string `  [step2] confirmed valid OpenAPI ${detail}: ${resultUrl}`);
+    }
+
     string fmt = resultUrl.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-    log:printInfo(string `  [step2] confirmed valid: ${resultUrl}`);
     return {
         specUrl:    resultUrl,
         specRepo:   repo.length() > 0 ? repo : fallbackRepo,
@@ -630,7 +672,7 @@ public function stepDiscovery(
     string? targetTitle,
     string anthropicKey,
     string? knownSpecRepo,
-    string? knownSpecUrl = ()    // previously stored spec URL — use as starting hint
+    string? knownSpecUrl = ()
 ) returns DiscoveryResult {
 
     log:printInfo(string `  [step3] starting discovery for: ${apiName}`);
@@ -644,9 +686,6 @@ public function stepDiscovery(
         ? string `\nKnown GitHub repo: ${knownSpecRepo} — use this as a starting point with the Contents API.`
         : "";
 
-    // When we have a previously confirmed URL, tell Claude about it so it can
-    // verify it is still valid and check for a newer version, instead of
-    // searching from scratch.
     string urlHint = knownSpecUrl is string
         ? string `\nPreviously confirmed spec URL: ${knownSpecUrl}\n  — Start by checking whether this URL is still a valid spec and whether a newer stable version exists.\n  — If it is still valid and no newer version is found, return it as the result.`
         : "";
@@ -819,21 +858,25 @@ function parseDiscoveryResult(string text) returns DiscoveryResult {
     return {candidateUrls: urls, specRepo: repo, discoveryMethod: method};
 }
 
+// ─── Text-based spec heuristic (fallback when Java validator is unavailable) ──
+
+// Returns true if the content looks like an OpenAPI/Swagger document based on
+// well-known top-level keys.  Used only when the Java parser JAR is not built.
+isolated function looksLikeSpec(string content) returns boolean {
+    string lo = content.toLowerAscii();
+    return lo.includes("\"openapi\"") || lo.includes("openapi:") ||
+           lo.includes("\"swagger\"") || lo.includes("swagger:");
+}
+
 // ─── Direct verify of a known URL (no Claude) ────────────────────────────────
-//
-// Used when a version-check step returns () (Claude API error / exhausted turns)
-// but NOT "DEAD". In that case the URL may well still be valid — we verify it
-// programmatically before falling back to a full re-discovery run.
-//
-// Returns SpecResult if the URL is reachable and looksLikeSpec passes.
-// Returns () if the fetch fails or the content is not a spec.
 
 public function directVerifyKnownUrl(string knownUrl, string? knownRepo) returns SpecResult? {
     log:printInfo(string `  [direct-verify] checking known URL: ${knownUrl}`);
     log:printDebug(string `  [direct-verify:debug] repo=${knownRepo ?: "none"}`);
 
     time:Utc t0 = time:utcNow();
-    string|error body = httpGetBodyPartial(knownUrl, 100000);
+    // Fetch the full file — the Java parser needs a complete, unparsed document.
+    string|error body = httpGetBodyFull(knownUrl);
     decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
 
     if body is error {
@@ -842,14 +885,25 @@ public function directVerifyKnownUrl(string knownUrl, string? knownRepo) returns
     }
     log:printDebug(string `  [direct-verify:debug] fetch OK in ${elapsed}s — ${body.length()} bytes`);
 
-    if !looksLikeSpec(body) {
-        log:printWarn(string `  [direct-verify] content at ${knownUrl} is not a valid spec`);
-        log:printDebug(string `  [direct-verify:debug] body snippet: ${body.substring(0, body.length() > 200 ? 200 : body.length())}`);
+    // ── Java parser validation ────────────────────────────────────────────────
+    string fmt = knownUrl.toLowerAscii().endsWith(".json") ? "json" : "yaml";
+    [boolean, string] [valid, detail] = javaValidateSpec(body);
+    log:printDebug(string `  [direct-verify:debug] java validation: valid=${valid} detail=${detail}`);
+
+    if detail == "java-validator-unavailable" {
+        // JAR not built yet — fall back to text heuristic
+        if !looksLikeSpec(body) {
+            log:printWarn(string `  [direct-verify] heuristic rejected ${knownUrl}: content does not look like a spec`);
+            return ();
+        }
+        log:printInfo(string `  [direct-verify] heuristic accepted (java-validator unavailable): ${knownUrl}`);
+    } else if !valid {
+        log:printWarn(string `  [direct-verify] Java parser rejected ${knownUrl}: ${detail}`);
         return ();
+    } else {
+        log:printInfo(string `  [direct-verify] confirmed valid OpenAPI ${detail}: ${knownUrl}`);
     }
 
-    string fmt = knownUrl.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-    log:printInfo(string `  [direct-verify] confirmed valid: ${knownUrl}`);
     return {
         specUrl:    knownUrl,
         specRepo:   knownRepo,
@@ -862,11 +916,11 @@ public function directVerifyKnownUrl(string knownUrl, string? knownRepo) returns
 // ─── STEP 4: Content Verify ───────────────────────────────────────────────────
 //
 // For each candidate URL:
-//   1. HEAD check (fast pre-filter)
-//   2. Content-Length check: if > 5 MB, trust HEAD and return (known-large specs)
-//   3. Fetch first 100 KB and run looksLikeSpec
-//   4. If programmatic check fails: try Claude-based validation as fallback
-//      (this catches specs that Claude found but our keyword check misses)
+//   1. HEAD check (fast pre-filter) + Content-Length
+//   2. If Content-Length > 20 MB → skip (pathological; no real spec is that large)
+//   3. If Content-Length > 5 MB  → trust HEAD alone (Microsoft Graph, etc.)
+//   4. Fetch the FULL file via httpGetBodyFull (no byte cap)
+//   5. Validate with the Java OpenAPI parser — needs a complete document
 
 public function stepContentVerify(
     DiscoveryResult discovery
@@ -884,18 +938,29 @@ public function stepContentVerify(
         log:printInfo(string `  [step4 check] ${candidateUrl}`);
         log:printDebug(string `  [step4:debug] processing: ${candidateUrl}`);
 
+        // ── Infer format from URL extension ───────────────────────────────────
+        string fmt = candidateUrl.toLowerAscii().endsWith(".json") ? "json" : "yaml";
+
         // ── HEAD check ────────────────────────────────────────────────────────
         boolean headPassed = headOk(candidateUrl);
+        int contentLength = 0;
         if headPassed {
-            // Check Content-Length for very large files.
-            // Files > 5 MB (e.g. Microsoft Graph, Stripe) are trusted on HEAD alone
-            // because downloading even a slice can hang on slow initial connections.
-            int contentLength = getContentLength(candidateUrl);
+            contentLength = getContentLength(candidateUrl);
             log:printDebug(string `  [step4:debug] headOk=true contentLength=${contentLength}`);
+
+            // Pathological: > 20 MB is not a real OpenAPI spec — skip entirely.
+            if contentLength > 20000000 {
+                log:printWarn(string `  [step4] file too large (${contentLength} bytes) — skipping: ${candidateUrl}`);
+                continue;
+            }
+
+            // Known very large specs (5–20 MB, e.g. Microsoft Graph, Stripe):
+            // the Java parser would need to load all of it into memory and may
+            // be slow, but more importantly these are always genuine specs — we
+            // have already confirmed the URL is reachable via HEAD.
+            // Trust HEAD and skip the content fetch for these.
             if contentLength > 5000000 {
-                log:printInfo(string `  [step4] large file (${contentLength} bytes) — skipping content fetch, trusting HEAD`);
-                string fmt = candidateUrl.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-                log:printInfo(string `  [step4] assumed valid (large known spec): ${candidateUrl}`);
+                log:printInfo(string `  [step4] large file (${contentLength} bytes) — trusting HEAD, skipping content fetch: ${candidateUrl}`);
                 return {
                     specUrl:    candidateUrl,
                     specRepo:   discovery.specRepo,
@@ -909,9 +974,13 @@ public function stepContentVerify(
             log:printDebug(string `  [step4:debug] headOk=false for ${candidateUrl}`);
         }
 
-        // ── Content fetch + programmatic spec check ───────────────────────────
+        // ── Full content fetch ────────────────────────────────────────────────
+        // No byte cap — the Java parser must receive the complete document to
+        // parse it correctly. httpGetBodyFull uses a 60 s timeout and a 20 MB
+        // safety cap at the HTTP layer (Content-Length was checked above but
+        // servers that omit that header could still stream large bodies).
         time:Utc t0 = time:utcNow();
-        string|error body = httpGetBodyPartial(candidateUrl, 100000);
+        string|error body = httpGetBodyFull(candidateUrl);
         decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
 
         if body is error {
@@ -921,12 +990,26 @@ public function stepContentVerify(
         }
         log:printDebug(string `  [step4:debug] content fetch OK in ${elapsed}s — body=${body.length()} bytes`);
 
-        boolean specOk = looksLikeSpec(body);
-        log:printDebug(string `  [step4:debug] looksLikeSpec=${specOk} for ${candidateUrl}`);
+        // ── Java OpenAPI parser validation ────────────────────────────────────
+        [boolean, string] [valid, detail] = javaValidateSpec(body);
+        log:printDebug(string `  [step4:debug] java validation: valid=${valid} detail=${detail} url=${candidateUrl}`);
 
-        if specOk {
-            string fmt = candidateUrl.toLowerAscii().endsWith(".json") ? "json" : "yaml";
-            log:printInfo(string `  [step4] confirmed valid: ${candidateUrl}`);
+        if detail == "java-validator-unavailable" {
+            // JAR not built yet — fall back to text heuristic
+            if looksLikeSpec(body) {
+                log:printInfo(string `  [step4] heuristic accepted (java-validator unavailable): ${candidateUrl}`);
+                return {
+                    specUrl:    candidateUrl,
+                    specRepo:   discovery.specRepo,
+                    title:      (),
+                    apiVersion: (),
+                    format:     fmt
+                };
+            }
+            log:printWarn(string `  [step4] heuristic rejected (java-validator unavailable): ${candidateUrl}`);
+            log:printDebug(string `  [step4:debug] body snippet: ${body.substring(0, body.length() > 300 ? 300 : body.length())}`);
+        } else if valid {
+            log:printInfo(string `  [step4] Java parser confirmed valid OpenAPI ${detail}: ${candidateUrl}`);
             return {
                 specUrl:    candidateUrl,
                 specRepo:   discovery.specRepo,
@@ -934,70 +1017,12 @@ public function stepContentVerify(
                 apiVersion: (),
                 format:     fmt
             };
+        } else {
+            log:printWarn(string `  [step4] Java parser rejected: ${candidateUrl} — ${detail}`);
+            log:printDebug(string `  [step4:debug] body snippet: ${body.substring(0, body.length() > 300 ? 300 : body.length())}`);
         }
-
-        log:printWarn(string `  [step4] content at ${candidateUrl} is not a valid OpenAPI/Swagger spec — skipping`);
-        log:printDebug(string `  [step4:debug] body snippet (first 300 chars): ${body.substring(0, body.length() > 300 ? 300 : body.length())}`);
-
     }
 
     log:printWarn(string `  [step4] all ${discovery.candidateUrls.length()} candidate(s) failed verification`);
     return ();
 }
-
-// ─── Spec content detection ───────────────────────────────────────────────────
-//
-// Checks whether a block of text looks like an OpenAPI or Swagger specification.
-//
-// Strategy (ordered from most to least specific):
-//   1. Exact YAML start markers (openapi: / swagger:)
-//   2. JSON top-level "openapi" or "swagger" key
-//   3. YAML occurrence anywhere in content (not just first line)
-//   4. JSON object with info + paths structure (common in large specs)
-//   5. GitHub "too large" error detection — do NOT validate these
-//
-// Note: We check up to 500 chars for structure markers and search the full
-// 100 KB for openapi/swagger keywords to handle large JSON specs where the
-// version field might not be in the very first bytes.
-
-isolated function looksLikeSpec(string content) returns boolean {
-    string t = content.trim();
-
-    // Quick reject: GitHub API error messages
-    if t.startsWith("{\"message\":") && t.includes("API rate limit") { return false; }
-    if t.startsWith("{\"message\":") && t.includes("too large") { return false; }
-    if t.startsWith("{\"message\":") && t.includes("Not Found") { return false; }
-
-    // 1. YAML start markers
-    if t.startsWith("openapi:") { return true; }
-    if t.startsWith("swagger:") { return true; }
-    if t.startsWith("---\nopenapi:") { return true; }
-    if t.startsWith("---\nswagger:") { return true; }
-
-    // 2. JSON top-level "openapi" or "swagger" key (within first 500 bytes)
-    string head = t.length() > 500 ? t.substring(0, 500) : t;
-    if head.includes("\"openapi\"") { return true; }
-    if head.includes("\"swagger\"") { return true; }
-
-    // 3. YAML occurrence anywhere in 100 KB content
-    //    (some YAML specs have front-matter or comments before the openapi: key)
-    if t.includes("\nopenapi:") { return true; }
-    if t.includes("\nswagger:") { return true; }
-
-    // 4. JSON body search beyond first 500 bytes
-    //    (handles large JSON files where "openapi" key is not at the very start)
-    if t.startsWith("{") || t.startsWith("[") {
-        if t.includes("\"openapi\"") { return true; }
-        if t.includes("\"swagger\"") { return true; }
-        // Structural hint: JSON with both "info" and "paths" top-level keys
-        // is very likely an OpenAPI spec even without the version field
-        string head2 = t.length() > 2000 ? t.substring(0, 2000) : t;
-        if head2.includes("\"info\"") && head2.includes("\"paths\"") { return true; }
-    }
-
-    // 5. YAML component-only documents (OAS3 overlay files)
-    if t.startsWith("components:") { return true; }
-
-    return false;
-}
-
