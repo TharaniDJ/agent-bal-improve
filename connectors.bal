@@ -1,6 +1,6 @@
 // connectors.bal
 
-public final Connector[] & readonly ALL_CONNECTORS = [
+//public final Connector[] & readonly ALL_CONNECTORS = [
     // ── Twilio ──────────────────────────────────────────────────────────────
     // ballerinax/twilio  →  Twilio REST API
     //{name: "Twilio",                        docsUrl: "https://www.twilio.com/docs/usage/api",                                                                          targetTitle: ()},
@@ -64,7 +64,7 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── RabbitMQ ─────────────────────────────────────────────────────────────
     // ballerinax/rabbitmq  →  RabbitMQ Management HTTP API
-    {name: "RabbitMQ",                      docsUrl: "https://www.rabbitmq.com/docs/management",                                                                       targetTitle: ()}
+    //{name: "RabbitMQ",                      docsUrl: "https://www.rabbitmq.com/docs/management",                                                                       targetTitle: ()}
 
     // ── Snowflake ────────────────────────────────────────────────────────────
     // ballerinax/snowflake  →  Snowflake SQL REST API reference
@@ -121,4 +121,54 @@ public final Connector[] & readonly ALL_CONNECTORS = [
     // ── Slack ────────────────────────────────────────────────────────────────
     // ballerinax/slack  →  Slack Web API (OpenAPI spec in slackapi/slack-api-specs)
     //{name: "Slack",                         docsUrl: "https://github.com/slackapi/slack-api-specs",                                                                    targetTitle: ("Slack Web API")}
+//];
+// connectors.bal
+public final Connector[] & readonly ALL_CONNECTORS = [
+    // ✅ Official spec in mistralai/platform-docs-public GitHub repo
+    //{name: "Mistral",                docsUrl: "https://github.com/mistralai/platform-docs-public",                                                                              targetTitle: ()},
+
+    // ⚠️  NATS uses a binary/pub-sub protocol — no REST OpenAPI spec exists.
+    //     Best available: JSON Schema registry at nats.io/schemas/
+    //     Using the official NATS docs page as the closest reference.
+    //{name: "NATS",                   docsUrl: "https://docs.nats.io/reference/reference-protocols/nats_api_reference",                                                                                            targetTitle: ()},
+
+    // ✅ Official spec in AWS SDK repo (converted from Smithy/JSON to OpenAPI by APIs-guru/aws2openapi)
+    //    SNS uses a query-over-HTTP protocol; best available OpenAPI spec is via APIs-guru
+    //{name: "AWS SNS",                docsUrl: "https://docs.aws.amazon.com/sns/latest/api/welcome.html",                                               targetTitle: ()},
+
+    // ✅ Official spec via APIs-guru (converted from AWS SDK Smithy model)
+    //{name: "AWS SQS",                docsUrl: "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-working-with-apis.html",                                               targetTitle: ()},
+
+    // ✅ Official Weaviate OpenAPI spec (schema.json in the main repo)
+    //{name: "AI Weaviate",            docsUrl: "https://docs.weaviate.io/weaviate/model-providers/openai",                                                                               targetTitle: ()},
+
+    // ✅ OneDrive is part of Microsoft Graph API — official OpenAPI spec from msgraph-metadata
+    //{name: "Microsoft OneDrive",     docsUrl: "https://learn.microsoft.com/en-us/onedrive/developer/rest-api/getting-started/?view=odsp-graph-online",                                                              targetTitle: ()},
+
+    // ✅ Official Trello OpenAPI spec published by Atlassian
+    {name: "Trello",                 docsUrl: "https://developer.atlassian.com/cloud/trello/rest/api-group-actions/",                                                                                                     targetTitle: ()},
+
+    // ✅ Official spec via APIs-guru (converted from AWS SDK Smithy model — Redshift Data API)
+    {name: "AWS Redshift",           docsUrl: "https://docs.aws.amazon.com/redshift/latest/mgmt/data-api.html",                                     targetTitle: ()},
+
+    // ✅ Official Solace PubSub+ Cloud Mission Control OpenAPI spec
+    {name: "Solace",                 docsUrl: "https://api.solace.dev/cloud/page/openapi-specifications",                                                                                                         targetTitle: ()},
+
+    // ✅ Official Asana OpenAPI spec from the Asana/openapi GitHub repo
+    {name: "Asana",                  docsUrl: "https://github.com/Asana/openapi",                                                                                       targetTitle: ()},
+
+    // ⚠️  SCIM 2.0 is an IETF protocol standard (RFC 7643/7644), not a single vendor's API.
+    //     No single canonical OpenAPI spec — using Okta's SCIM 2.0 spec as the most widely
+    //     adopted reference implementation.
+    {name: "SCIM",                   docsUrl: "https://developer.okta.com/docs/api/openapi/okta-scim/guides/scim-20",                                                                                             targetTitle: ()},
+
+    // ✅ Official PayPal Orders v2 OpenAPI spec from paypal/paypal-rest-api-specifications
+    {name: "PayPal Orders",          docsUrl: "https://developer.paypal.com/docs/api/orders/v2/",                                                     targetTitle: ()},
+
+    // ⚠️  IBM MQ REST API spec is served at runtime by the MQ web server (Liberty/WLP).
+    //     No static publicly downloadable file — using the official IBM Cloud docs as reference.
+    {name: "IBM MQ",                 docsUrl: "https://www.ibm.com/docs/en/ibm-mq/latest?topic=api-rest-reference",                                                                                               targetTitle: ()},
+
+    // ✅ Official spec via APIs-guru (converted from AWS SDK Smithy model)
+    {name: "AWS Secret Manager",     docsUrl: "https://aws.amazon.com/secrets-manager/",                                    targetTitle: ()}
 ];
