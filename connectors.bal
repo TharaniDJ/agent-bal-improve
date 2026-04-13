@@ -123,7 +123,7 @@
     //{name: "Slack",                         docsUrl: "https://github.com/slackapi/slack-api-specs",                                                                    targetTitle: ("Slack Web API")}
 //];
 // connectors.bal
-public final Connector[] & readonly ALL_CONNECTORS = [
+//public final Connector[] & readonly ALL_CONNECTORS = [
     // ✅ Official spec in mistralai/platform-docs-public GitHub repo
     //{name: "Mistral",                docsUrl: "https://github.com/mistralai/platform-docs-public",                                                                              targetTitle: ()},
 
@@ -146,29 +146,106 @@ public final Connector[] & readonly ALL_CONNECTORS = [
     //{name: "Microsoft OneDrive",     docsUrl: "https://learn.microsoft.com/en-us/onedrive/developer/rest-api/getting-started/?view=odsp-graph-online",                                                              targetTitle: ()},
 
     // ✅ Official Trello OpenAPI spec published by Atlassian
-    {name: "Trello",                 docsUrl: "https://developer.atlassian.com/cloud/trello/rest/api-group-actions/",                                                                                                     targetTitle: ()},
+    //{name: "Trello",                 docsUrl: "https://developer.atlassian.com/cloud/trello/rest/api-group-actions/",                                                                                                     targetTitle: ()},
 
     // ✅ Official spec via APIs-guru (converted from AWS SDK Smithy model — Redshift Data API)
-    {name: "AWS Redshift",           docsUrl: "https://docs.aws.amazon.com/redshift/latest/mgmt/data-api.html",                                     targetTitle: ()},
+    //{name: "AWS Redshift",           docsUrl: "https://docs.aws.amazon.com/redshift/latest/mgmt/data-api.html",                                     targetTitle: ()},
 
     // ✅ Official Solace PubSub+ Cloud Mission Control OpenAPI spec
-    {name: "Solace",                 docsUrl: "https://api.solace.dev/cloud/page/openapi-specifications",                                                                                                         targetTitle: ()},
+    //{name: "Solace",                 docsUrl: "https://api.solace.dev/cloud/page/openapi-specifications",                                                                                                         targetTitle: ()},
 
     // ✅ Official Asana OpenAPI spec from the Asana/openapi GitHub repo
-    {name: "Asana",                  docsUrl: "https://github.com/Asana/openapi",                                                                                       targetTitle: ()},
+    //{name: "Asana",                  docsUrl: "https://github.com/Asana/openapi",                                                                                       targetTitle: ()},
 
     // ⚠️  SCIM 2.0 is an IETF protocol standard (RFC 7643/7644), not a single vendor's API.
     //     No single canonical OpenAPI spec — using Okta's SCIM 2.0 spec as the most widely
     //     adopted reference implementation.
-    {name: "SCIM",                   docsUrl: "https://developer.okta.com/docs/api/openapi/okta-scim/guides/scim-20",                                                                                             targetTitle: ()},
+    //{name: "SCIM",                   docsUrl: "https://developer.okta.com/docs/api/openapi/okta-scim/guides/scim-20",                                                                                             targetTitle: ()},
 
     // ✅ Official PayPal Orders v2 OpenAPI spec from paypal/paypal-rest-api-specifications
-    {name: "PayPal Orders",          docsUrl: "https://developer.paypal.com/docs/api/orders/v2/",                                                     targetTitle: ()},
+   // {name: "PayPal Orders",          docsUrl: "https://developer.paypal.com/docs/api/orders/v2/",                                                     targetTitle: ()},
 
     // ⚠️  IBM MQ REST API spec is served at runtime by the MQ web server (Liberty/WLP).
     //     No static publicly downloadable file — using the official IBM Cloud docs as reference.
-    {name: "IBM MQ",                 docsUrl: "https://www.ibm.com/docs/en/ibm-mq/latest?topic=api-rest-reference",                                                                                               targetTitle: ()},
+    //{name: "IBM MQ",                 docsUrl: "https://www.ibm.com/docs/en/ibm-mq/latest?topic=api-rest-reference",                                                                                               targetTitle: ()},
 
     // ✅ Official spec via APIs-guru (converted from AWS SDK Smithy model)
-    {name: "AWS Secret Manager",     docsUrl: "https://aws.amazon.com/secrets-manager/",                                    targetTitle: ()}
+    //{name: "AWS Secret Manager",     docsUrl: "https://aws.amazon.com/secrets-manager/",                                    targetTitle: ()}
+//];
+// connectors.bal
+// Connector registry for the updated set of 15 connectors.
+//
+// docsUrl = the official API / spec documentation page for that connector.
+//           This is what the agent fetches to discover the spec URL.
+//
+// targetTitle = only set for multi-spec pages where one docs URL
+//               hosts several different specs.
+//
+// Notes on challenging connectors:
+//   Java JMS         — JMS is a Java messaging standard (javax.jms / jakarta.jms),
+//                      not a REST API. There is no public OpenAPI/REST spec. The
+//                      closest authoritative reference is the Jakarta EE JMS spec page.
+//                      LLM strategy must generate or approximate a connector from the
+//                      spec rather than fetching a ready-made OpenAPI document.
+//   HL7              — HL7's REST-capable standard is FHIR. docsUrl points to the
+//                      canonical FHIR RESTful API reference on hl7.org.
+//   OpenRouter AI Gateway — "AI Gateway" variant refers to Cloudflare's AI Gateway
+//                      proxy for OpenRouter; "OpenRouter" is the direct OpenRouter API.
+//   WSO2 API Manager Catalog — targets the Service Catalog v1 sub-API within APIM.
+
+public final Connector[] & readonly ALL_CONNECTORS = [
+
+    // ── Messaging (non-REST standard) ─────────────────────────────────────────
+    // NOTE: Java JMS has no public OpenAPI/REST spec; the docsUrl below points
+    // to the Jakarta Messaging 3.1 specification. LLM strategy must synthesize
+    // the connector from the spec rather than fetching an OpenAPI document.
+    {name: "Java JMS", docsUrl: "https://jakarta.ee/specifications/messaging/3.1/", targetTitle: ()},
+
+    // ── Azure AI Search ───────────────────────────────────────────────────────
+    // "Azure AI Search Index" covers the data-plane (index / query) operations.
+    // "Azure AI Search" covers the management-plane (service administration) API.
+    {name: "Azure AI Search Index", docsUrl: "https://learn.microsoft.com/en-us/rest/api/searchservice/",    targetTitle: ()},
+    {name: "Azure AI Search",       docsUrl: "https://learn.microsoft.com/en-us/rest/api/searchmanagement/", targetTitle: ()},
+
+    // ── AI Routing ────────────────────────────────────────────────────────────
+    // "OpenRouter AI Gateway" = Cloudflare AI Gateway proxy in front of OpenRouter.
+    // "OpenRouter" = the direct OpenRouter unified-LLM API.
+    {name: "OpenRouter AI Gateway", docsUrl: "https://developers.cloudflare.com/ai-gateway/usage/providers/openrouter/", targetTitle: ()},
+    {name: "OpenRouter",            docsUrl: "https://openrouter.ai/docs/api/reference/overview",                        targetTitle: ()},
+
+    // ── WSO2 API Manager ──────────────────────────────────────────────────────
+    // "WSO2 API Manager Catalog" targets the Service Catalog v1 REST API.
+    {name: "WSO2 API Manager Catalog", docsUrl: "https://apim.docs.wso2.com/en/latest/reference/product-apis/service-catalog-apis/service-catalog-v1/service-catalog-v1/", targetTitle: ()},
+
+    // ── Google Cloud Messaging ────────────────────────────────────────────────
+    {name: "Google Cloud Pub/Sub", docsUrl: "https://cloud.google.com/pubsub/docs/reference/rest", targetTitle: ()},
+
+    // ── Healthcare Interoperability ───────────────────────────────────────────
+    // NOTE: HL7 FHIR is the REST standard published by HL7. The docsUrl below
+    // is the canonical FHIR RESTful API interaction reference (R5, current release).
+    {name: "HL7", docsUrl: "https://www.hl7.org/fhir/http.html", targetTitle: ()},
+
+    // ── Project Management ────────────────────────────────────────────────────
+    {name: "Jira", docsUrl: "https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/", targetTitle: ()},
+
+    // ── AI / Google Cloud ─────────────────────────────────────────────────────
+    {name: "AI GoogleAPIs Vertex", docsUrl: "https://cloud.google.com/vertex-ai/docs/reference/rest", targetTitle: ()},
+
+    // ── Nonprofit Data ────────────────────────────────────────────────────────
+    // Candid hosts multiple specs under one docs URL; targetTitle selects the right one.
+    {name: "Candid", docsUrl: "https://developer.candid.org/reference/openapi", targetTitle: ()},
+
+    // ── Document Signing ──────────────────────────────────────────────────────
+    {name: "DocuSign eSign API", docsUrl: "https://developers.docusign.com/docs/esign-rest-api/", targetTitle: ()},
+
+    // ── AI / OpenAI ───────────────────────────────────────────────────────────
+    // "OpenAI Audio" covers the /audio/* endpoints (speech, transcription, translation).
+    {name: "OpenAI Audio", docsUrl: "https://platform.openai.com/docs/api-reference/audio", targetTitle: ()},
+
+    // ── Email Marketing ───────────────────────────────────────────────────────
+    {name: "Mailchimp Transactional", docsUrl: "https://mailchimp.com/developer/transactional/api/", targetTitle: ()},
+
+    // ── HubSpot CRM ───────────────────────────────────────────────────────────
+    // "HubSpot CRM Associations" covers both v3 and v4 association detail endpoints.
+    {name: "HubSpot CRM Associations", docsUrl: "https://developers.hubspot.com/docs/api/crm/associations", targetTitle: ()}
 ];
