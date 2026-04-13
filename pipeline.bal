@@ -863,7 +863,10 @@ function parseDiscoveryResult(string text) returns DiscoveryResult {
 // Returns true if the content looks like an OpenAPI/Swagger document based on
 // well-known top-level keys.  Used only when the Java parser JAR is not built.
 isolated function looksLikeSpec(string content) returns boolean {
-    string lo = content.toLowerAscii();
+    // Only scan the first 10 KB — the openapi:/swagger: key always appears
+    // near the top of the document, and avoid a full toLowerAscii() on large files.
+    string head = content.length() > 10000 ? content.substring(0, 10000) : content;
+    string lo = head.toLowerAscii();
     return lo.includes("\"openapi\"") || lo.includes("openapi:") ||
            lo.includes("\"swagger\"") || lo.includes("swagger:");
 }
@@ -954,20 +957,12 @@ public function stepContentVerify(
                 continue;
             }
 
-            // Known very large specs (5–20 MB, e.g. Microsoft Graph, Stripe):
-            // the Java parser would need to load all of it into memory and may
-            // be slow, but more importantly these are always genuine specs — we
-            // have already confirmed the URL is reachable via HEAD.
-            // Trust HEAD and skip the content fetch for these.
+            // Large files (5–20 MB): fetch and validate normally.
+            // httpGetBodyFull supports up to 20 MB (60 s timeout, Git Blobs API
+            // fallback for GitHub).  The Java parser runs with setResolve(false)
+            // so it does not chase $ref URLs and handles large files fine.
             if contentLength > 5000000 {
-                log:printInfo(string `  [step4] large file (${contentLength} bytes) — trusting HEAD, skipping content fetch: ${candidateUrl}`);
-                return {
-                    specUrl:    candidateUrl,
-                    specRepo:   discovery.specRepo,
-                    title:      (),
-                    apiVersion: (),
-                    format:     fmt
-                };
+                log:printInfo(string `  [step4] large file (${contentLength} bytes) — fetching for validation: ${candidateUrl}`);
             }
         } else {
             log:printInfo("  [step4] HEAD failed — trying content fetch anyway");
