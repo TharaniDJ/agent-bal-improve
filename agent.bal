@@ -304,8 +304,10 @@ function callClaude(string apiKey, string model, json[] messages, string systemP
     log:printDebug(string `    [claude] calling API model=${model} messages=${messages.length()} promptLen=${systemPrompt.length()}`);
     time:Utc t0 = time:utcNow();
 
+    decimal claudeTimeout = remainingDeadlineSeconds();
+    log:printDebug(string `    [claude] timeout=${claudeTimeout}s (remaining deadline)`);
     http:Client cl = check new ("https://api.anthropic.com", {
-        timeout: 120,
+        timeout: claudeTimeout,
         secureSocket: {enable: true}
     });
 

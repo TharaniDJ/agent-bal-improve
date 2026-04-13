@@ -29,8 +29,8 @@ const string BAR  = "===========================================================
 const string DASH = "----------------------------------------------------------------";
 
 // Maximum wall-clock seconds allowed for a single connector (all steps combined).
-// Override via MAX_CONNECTOR_SECONDS env var.  Default: 300 s (5 minutes).
-const decimal DEFAULT_MAX_CONNECTOR_SECONDS = 300.0;
+// Override via MAX_CONNECTOR_SECONDS env var.  Default: 120 s (2 minutes).
+const decimal DEFAULT_MAX_CONNECTOR_SECONDS = 120.0;
 
 public function main() returns error? {
     string apiKey    = os:getEnv("ANTHROPIC_API_KEY");
@@ -39,6 +39,13 @@ public function main() returns error? {
     string outFile   = os:getEnv("OUTPUT").length() > 0 ? os:getEnv("OUTPUT") : outputFile;
     string ghToken   = os:getEnv("GITHUB_TOKEN");
     string model     = os:getEnv("CLAUDE_MODEL").length() > 0 ? os:getEnv("CLAUDE_MODEL") : "claude-sonnet-4-6";
+
+    decimal maxSeconds = DEFAULT_MAX_CONNECTOR_SECONDS;
+    string maxSecondsEnv = os:getEnv("MAX_CONNECTOR_SECONDS");
+    if maxSecondsEnv.length() > 0 {
+        decimal|error parsed = decimal:fromString(maxSecondsEnv);
+        if parsed is decimal && parsed > 0d { maxSeconds = parsed; }
+    }
 
     Connector[] connectors = filterStr.length() > 0
         ? ALL_CONNECTORS.filter(c => c.name.toLowerAscii().includes(filterStr))
@@ -70,6 +77,7 @@ public function main() returns error? {
     io:println(string `  GitHub : ${ghToken.length() > 0 ? "token set" : "no token (rate limit: 60/hr)"}`);
     io:println(string `  Output : ${outFile}`);
     io:println(string `  APIs   : ${connectors.length()}`);
+    io:println(string `  Timeout: ${<int>maxSeconds}s per connector (override: MAX_CONNECTOR_SECONDS=N)`);
     io:println(string `  Mode   : sequential (one at a time)`);
     io:println(string `  Debug  : run with --log-level=DEBUG for verbose fetch/timing logs`);
     io:println(BAR);
@@ -116,6 +124,7 @@ public function main() returns error? {
             io:println(string `${progress} START  ${label}  (no previous URL)`);
         }
 
+        setConnectorDeadline(maxSeconds);
         ResultEntry entry = processConnector(c, knownUrl, knownRepo, apiKey, progress);
 
         if entry.status == "found" {
@@ -125,7 +134,8 @@ public function main() returns error? {
             io:println(string `            format=${entry.format ?: "?"} | ${entry.elapsedSeconds}s`);
         } else {
             notFound += 1;
-            io:println(string `${progress} FAIL   ${label}  [${entry.elapsedSeconds}s]`);
+            string timeoutNote = entry.elapsedSeconds >= maxSeconds ? "  [TIMEOUT]" : "";
+            io:println(string `${progress} FAIL   ${label}  [${entry.elapsedSeconds}s]${timeoutNote}`);
             log:printWarn(string `${progress} NOT FOUND: ${label} | docs=${c.docsUrl}`);
         }
 

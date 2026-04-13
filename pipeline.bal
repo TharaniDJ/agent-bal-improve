@@ -12,6 +12,41 @@ import ballerina/log;
 import ballerina/os;
 import ballerina/time;
 
+// ─── Per-connector deadline ───────────────────────────────────────────────────
+//
+// Set once per connector via setConnectorDeadline() before any step runs.
+// All Claude turn loops and the step-4 candidate loop check deadlineExceeded()
+// at the top of each iteration so they abort cleanly when time is up.
+
+isolated time:Utc connectorDeadline = [0, 0.0d];
+
+// Call this before processing each connector.  seconds is the wall-clock budget.
+public isolated function setConnectorDeadline(decimal seconds) {
+    lock {
+        time:Utc now = time:utcNow();
+        connectorDeadline = [now[0] + <int>seconds, now[1]];
+    }
+}
+
+// Returns true once the budget set by setConnectorDeadline() is exhausted.
+isolated function deadlineExceeded() returns boolean {
+    lock {
+        return time:utcDiffSeconds(time:utcNow(), connectorDeadline) > 0d;
+    }
+}
+
+// Returns seconds remaining before the deadline, clamped to [5 s, 120 s].
+// Used as the HTTP timeout for Claude API calls so an in-flight call can't
+// outlive the connector budget regardless of when it started.
+public isolated function remainingDeadlineSeconds() returns decimal {
+    lock {
+        decimal remaining = time:utcDiffSeconds(connectorDeadline, time:utcNow());
+        if remaining < 5.0d  { return 5.0d; }
+        if remaining > 120.0d { return 120.0d; }
+        return remaining;
+    }
+}
+
 // ─── STEP 1: Quick Verify (stable/direct URLs only) ──────────────────────────
 
 public function stepQuickVerify(
@@ -134,6 +169,10 @@ Return STABLE_CHECK_RESULT.`;
     int turn = 0;
 
     while turn < maxTurns {
+        if deadlineExceeded() {
+            log:printWarn(string `  [step1b] deadline exceeded at turn ${turn} — aborting`);
+            break;
+        }
         turn += 1;
         log:printInfo(string `  [step1b turn ${turn}/${maxTurns}]`);
         log:printDebug(string `  [step1b:debug] turn ${turn} — calling Claude`);
@@ -367,6 +406,10 @@ Docs URL (official documentation page — use to cross-reference the latest vers
     int turn = 0;
 
     while turn < maxTurns {
+        if deadlineExceeded() {
+            log:printWarn(string `  [step2] deadline exceeded at turn ${turn} — aborting`);
+            break;
+        }
         turn += 1;
         log:printInfo(string `  [step2 turn ${turn}/${maxTurns}]`);
         log:printDebug(string `  [step2:debug] turn ${turn} — calling Claude`);
@@ -715,6 +758,10 @@ Return DISCOVERY_RESULT with raw download URLs only. List official vendor URLs b
     int turn = 0;
 
     while turn < maxTurns {
+        if deadlineExceeded() {
+            log:printWarn(string `  [step3] deadline exceeded at turn ${turn} — aborting`);
+            break;
+        }
         turn += 1;
         log:printInfo(string `  [step3 turn ${turn}/${maxTurns}]`);
         log:printDebug(string `  [step3:debug] turn ${turn} — calling Claude`);
@@ -935,6 +982,10 @@ public function stepContentVerify(
     log:printDebug(string `  [step4:debug] candidates: ${discovery.candidateUrls.toString()}`);
 
     foreach string candidateUrl in discovery.candidateUrls {
+        if deadlineExceeded() {
+            log:printWarn("  [step4] deadline exceeded — stopping candidate verification");
+            break;
+        }
         log:printInfo(string `  [step4 check] ${candidateUrl}`);
         log:printDebug(string `  [step4:debug] processing: ${candidateUrl}`);
 
