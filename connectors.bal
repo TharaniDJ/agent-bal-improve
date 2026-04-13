@@ -48,7 +48,7 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── Confluent Schema Registry ────────────────────────────────────────────
     // ballerinax/confluent.schemaregistry  →  Schema Registry REST API reference
-    //{name: "Confluent Schema Registry",     docsUrl: "https://docs.confluent.io/platform/current/schema-registry/develop/api.html",                                    targetTitle: ()},
+    //{name: "Confluent Schema Registry",     docsUrl: "https://github.com/confluentinc/schema-registry",                                    targetTitle: ()}
 
     // ── CDC (Change Data Capture) ────────────────────────────────────────────
     // ballerinax/cdc  →  Debezium documentation (the underlying CDC engine)
@@ -92,7 +92,7 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── FHIR ─────────────────────────────────────────────────────────────────
     // ballerinax/health.clients.fhir  →  HL7 FHIR R4 RESTful API specification
-    //{name: "FHIR",                          docsUrl: "https://hl7.org/fhir/R4/http.html",                                                                              targetTitle: ()},
+    {name: "FHIR",                          docsUrl: "https://hl7.org/fhir/R4/http.html",                                                                              targetTitle: ()}
 
     // ── AI Anthropic ─────────────────────────────────────────────────────────
     // ballerinax/ai.anthropic  →  Anthropic Messages API
@@ -116,9 +116,9 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── Stripe ───────────────────────────────────────────────────────────────
     // ballerinax/stripe  →  Stripe API reference
-    {name: "Stripe",                        docsUrl: "https://github.com/stripe/openapi",                                                                                    targetTitle: ()},
+    //{name: "Stripe",                        docsUrl: "https://github.com/stripe/openapi",                                                                                    targetTitle: ()},
 
     // ── Slack ────────────────────────────────────────────────────────────────
     // ballerinax/slack  →  Slack Web API (OpenAPI spec in slackapi/slack-api-specs)
-    {name: "Slack",                         docsUrl: "https://github.com/slackapi/slack-api-specs",                                                                    targetTitle: ("Slack Web API")}
+    //{name: "Slack",                         docsUrl: "https://github.com/slackapi/slack-api-specs",                                                                    targetTitle: ("Slack Web API")}
 ];

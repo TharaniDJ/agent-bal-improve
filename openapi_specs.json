@@ -144,16 +144,16 @@
     },
     {
         "name": "Confluent Schema Registry",
-        "docsUrl": "https://docs.confluent.io/platform/current/schema-registry/develop/api.html",
+        "docsUrl": "https://github.com/confluentinc/schema-registry",
         "targetTitle": null,
-        "specUrl": null,
-        "specRepo": null,
+        "specUrl": "https://raw.githubusercontent.com/confluentinc/schema-registry/master/core/generated/swagger-ui/schema-registry-api-spec.yaml",
+        "specRepo": "confluentinc/schema-registry",
         "title": null,
         "apiVersion": null,
-        "format": null,
-        "status": "not_found",
-        "checkedAt": "2026-04-13T04:50:33.793512Z",
-        "elapsedSeconds": 58.5
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-13T12:22:44.119329Z",
+        "elapsedSeconds": 22.1
     },
     {
         "name": "CDC",
@@ -289,14 +289,14 @@
         "name": "FHIR",
         "docsUrl": "https://hl7.org/fhir/R4/http.html",
         "targetTitle": null,
-        "specUrl": null,
+        "specUrl": "https://hapi.fhir.org/baseR4/api-docs",
         "specRepo": null,
         "title": null,
         "apiVersion": null,
-        "format": null,
-        "status": "not_found",
-        "checkedAt": "2026-04-13T04:54:43.559733Z",
-        "elapsedSeconds": 47.1
+        "format": "yaml",
+        "status": "found",
+        "checkedAt": "2026-04-13T15:49:44.036200Z",
+        "elapsedSeconds": 58.8
     },
     {
         "name": "AI Anthropic",

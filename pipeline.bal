@@ -268,7 +268,10 @@ function parseStableCheckResult(string text, string fallbackUrl, string? fallbac
         log:printInfo(string `  [step1b] heuristic accepted (java-validator unavailable): ${resultUrl}`);
     } else if !valid {
         log:printWarn(string `  [step1b] Java parser rejected ${resultUrl}: ${detail}`);
-        return ();
+        if !looksLikeSpec(body) {
+            return ();
+        }
+        log:printWarn(string `  [step1b] heuristic override — Java parser rejected but content looks like a spec: ${resultUrl}`);
     } else {
         log:printInfo(string `  [step1b] confirmed valid OpenAPI ${detail}: ${resultUrl}`);
     }
@@ -500,7 +503,10 @@ function parseGithubCheckResult(string text, string? fallbackRepo) returns SpecR
         log:printInfo(string `  [step2] heuristic accepted (java-validator unavailable): ${resultUrl}`);
     } else if !valid {
         log:printWarn(string `  [step2] Java parser rejected ${resultUrl}: ${detail}`);
-        return ();
+        if !looksLikeSpec(body) {
+            return ();
+        }
+        log:printWarn(string `  [step2] heuristic override — Java parser rejected but content looks like a spec: ${resultUrl}`);
     } else {
         log:printInfo(string `  [step2] confirmed valid OpenAPI ${detail}: ${resultUrl}`);
     }
@@ -902,7 +908,10 @@ public function directVerifyKnownUrl(string knownUrl, string? knownRepo) returns
         log:printInfo(string `  [direct-verify] heuristic accepted (java-validator unavailable): ${knownUrl}`);
     } else if !valid {
         log:printWarn(string `  [direct-verify] Java parser rejected ${knownUrl}: ${detail}`);
-        return ();
+        if !looksLikeSpec(body) {
+            return ();
+        }
+        log:printWarn(string `  [direct-verify] heuristic override — Java parser rejected but content looks like a spec: ${knownUrl}`);
     } else {
         log:printInfo(string `  [direct-verify] confirmed valid OpenAPI ${detail}: ${knownUrl}`);
     }
@@ -1014,6 +1023,16 @@ public function stepContentVerify(
             };
         } else {
             log:printWarn(string `  [step4] Java parser rejected: ${candidateUrl} — ${detail}`);
+            if looksLikeSpec(body) {
+                log:printWarn(string `  [step4] heuristic override — Java parser rejected but content looks like a spec: ${candidateUrl}`);
+                return {
+                    specUrl:    candidateUrl,
+                    specRepo:   discovery.specRepo,
+                    title:      (),
+                    apiVersion: (),
+                    format:     fmt
+                };
+            }
             log:printDebug(string `  [step4:debug] body snippet: ${body.substring(0, body.length() > 300 ? 300 : body.length())}`);
         }
     }
