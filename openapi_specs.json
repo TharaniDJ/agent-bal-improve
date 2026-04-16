@@ -755,16 +755,16 @@
     },
     {
         "name": "HubSpot CRM Obj Contacts",
-        "docsUrl": "https://developers.hubspot.com/docs/reference/api/crm/objects/contacts/v3",
+        "docsUrl": "https://github.com/HubSpot/HubSpot-public-api-spec-collection",
         "targetTitle": null,
-        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Contacts/Rollouts/107729/v3/contacts.json",
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Contacts/Rollouts/424/v3/contacts.json",
         "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
         "title": null,
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-16T03:35:21.682602Z",
-        "elapsedSeconds": 42.9
+        "checkedAt": "2026-04-16T06:13:27.329878Z",
+        "elapsedSeconds": 27.7
     },
     {
         "name": "AWS Marketplace MPE",
@@ -859,7 +859,7 @@
     },
     {
         "name": "HubSpot Marketing Emails",
-        "docsUrl": "https://developers.hubspot.com/docs/reference/api/marketing/emails/marketing-emails",
+        "docsUrl": "https://github.com/HubSpot/HubSpot-public-api-spec-collection",
         "targetTitle": null,
         "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/Marketing/Marketing%20Emails%20V3/Rollouts/155892/v3/marketingEmailsV3.json",
         "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
@@ -867,12 +867,12 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-16T03:39:22.154707Z",
-        "elapsedSeconds": 44.9
+        "checkedAt": "2026-04-16T06:13:45.410024Z",
+        "elapsedSeconds": 18.0
     },
     {
         "name": "HubSpot Marketing Forms",
-        "docsUrl": "https://developers.hubspot.com/docs/reference/api/marketing/forms/v3",
+        "docsUrl": "https://github.com/HubSpot/HubSpot-public-api-spec-collection",
         "targetTitle": null,
         "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/Marketing/Forms/Rollouts/144909/v3/forms.json",
         "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
@@ -880,25 +880,25 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-16T03:40:02.740940Z",
-        "elapsedSeconds": 40.6
+        "checkedAt": "2026-04-16T06:13:59.236528Z",
+        "elapsedSeconds": 13.8
     },
     {
         "name": "HubSpot Marketing Transactional",
-        "docsUrl": "https://developers.hubspot.com/docs/reference/api/marketing/emails/transactional-emails",
+        "docsUrl": "https://github.com/HubSpot/HubSpot-public-api-spec-collection",
         "targetTitle": null,
-        "specUrl": null,
-        "specRepo": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/Marketing/Transactional%20Single%20Send/Rollouts/140892/v3/transactionalSingleSend.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
         "title": null,
         "apiVersion": null,
-        "format": null,
-        "status": "not_found",
-        "checkedAt": "2026-04-16T03:40:17.167230Z",
-        "elapsedSeconds": 14.4
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-16T06:14:26.063716Z",
+        "elapsedSeconds": 26.8
     },
     {
         "name": "HubSpot CRM Import",
-        "docsUrl": "https://developers.hubspot.com/docs/reference/api/crm/imports",
+        "docsUrl": "https://github.com/HubSpot/HubSpot-public-api-spec-collection",
         "targetTitle": null,
         "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Imports/Rollouts/144903/v3/imports.json",
         "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
@@ -906,8 +906,8 @@
         "apiVersion": null,
         "format": "json",
         "status": "found",
-        "checkedAt": "2026-04-16T03:41:07.465259Z",
-        "elapsedSeconds": 50.3
+        "checkedAt": "2026-04-16T06:14:40.763603Z",
+        "elapsedSeconds": 14.7
     },
     {
         "name": "PayPal Payments",

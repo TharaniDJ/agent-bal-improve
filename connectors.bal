@@ -276,50 +276,50 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── HubSpot CRM ───────────────────────────────────────────────────────────
     // "HubSpot CRM Obj Contacts" covers the v3 CRM Contacts object endpoints.
-    {name: "HubSpot CRM Obj Contacts", docsUrl: "https://developers.hubspot.com/docs/reference/api/crm/objects/contacts/v3", targetTitle: ()},
+    {name: "HubSpot CRM Obj Contacts", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
 
     // ── AWS Marketplace ───────────────────────────────────────────────────────
     // "AWS Marketplace MPE" = Metering and Entitlement (Metering Service API).
     // "AWS Marketplace MPM" = Management Portal / Catalog API (seller management plane).
-    {name: "AWS Marketplace MPE", docsUrl: "https://docs.aws.amazon.com/marketplace/latest/APIReference/API_Operations_AWSMarketplace_Metering.html", targetTitle: ()},
-    {name: "AWS Marketplace MPM", docsUrl: "https://docs.aws.amazon.com/marketplace/latest/APIReference/welcome.html",                                 targetTitle: ()},
+    //{name: "AWS Marketplace MPE", docsUrl: "https://docs.aws.amazon.com/marketplace/latest/APIReference/API_Operations_AWSMarketplace_Metering.html", targetTitle: ()},
+    //{name: "AWS Marketplace MPM", docsUrl: "https://docs.aws.amazon.com/marketplace/latest/APIReference/welcome.html",                                 targetTitle: ()},
 
     // ── Content Management ────────────────────────────────────────────────────
-    {name: "Alfresco", docsUrl: "https://docs.alfresco.com/content-services/latest/develop/rest-api-guide/", targetTitle: ()},
+    //{name: "Alfresco", docsUrl: "https://docs.alfresco.com/content-services/latest/develop/rest-api-guide/", targetTitle: ()},
 
     // ── AI / OpenAI ───────────────────────────────────────────────────────────
     // "OpenAI Fine-Tunes" covers the /v1/fine_tuning/* endpoints (fine-tuning jobs).
     // "OpenAI" covers the full OpenAI REST API reference (all endpoints).
-    {name: "OpenAI Fine-Tunes", docsUrl: "https://platform.openai.com/docs/api-reference/fine-tuning", targetTitle: ()},
-    {name: "OpenAI",            docsUrl: "https://platform.openai.com/docs/api-reference/introduction", targetTitle: ()},
+    //{name: "OpenAI Fine-Tunes", docsUrl: "https://platform.openai.com/docs/api-reference/fine-tuning", targetTitle: ()},
+    //{name: "OpenAI",            docsUrl: "https://platform.openai.com/docs/api-reference/introduction", targetTitle: ()},
 
     // ── Messaging / Community ─────────────────────────────────────────────────
-    {name: "Discord", docsUrl: "https://discord.com/developers/docs/reference", targetTitle: ()},
+    //{name: "Discord", docsUrl: "https://discord.com/developers/docs/reference", targetTitle: ()},
 
     // ── Document Signing ──────────────────────────────────────────────────────
     // "DocuSign Click" covers the Click API (elastic template / clickwrap consent).
-    {name: "DocuSign Click", docsUrl: "https://developers.docusign.com/docs/click-api/", targetTitle: ()},
+    //{name: "DocuSign Click", docsUrl: "https://developers.docusign.com/docs/click-api/", targetTitle: ()},
 
     // ── HubSpot Marketing ─────────────────────────────────────────────────────
-    {name: "HubSpot Marketing Emails",       docsUrl: "https://developers.hubspot.com/docs/reference/api/marketing/emails/marketing-emails",      targetTitle: ()},
-    {name: "HubSpot Marketing Forms",        docsUrl: "https://developers.hubspot.com/docs/reference/api/marketing/forms/v3",                     targetTitle: ()},
-    {name: "HubSpot Marketing Transactional",docsUrl: "https://developers.hubspot.com/docs/reference/api/marketing/emails/transactional-emails",  targetTitle: ()},
+    {name: "HubSpot Marketing Emails",       docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection",      targetTitle: ()},
+    {name: "HubSpot Marketing Forms",        docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection",                     targetTitle: ()},
+    {name: "HubSpot Marketing Transactional",docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection",  targetTitle: ()},
 
     // ── HubSpot CRM ───────────────────────────────────────────────────────────
     // "HubSpot CRM Import" covers the CRM Imports v3 endpoints.
-    {name: "HubSpot CRM Import", docsUrl: "https://developers.hubspot.com/docs/reference/api/crm/imports", targetTitle: ()},
+    {name: "HubSpot CRM Import", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()}
 
     // ── Payments ──────────────────────────────────────────────────────────────
     // "PayPal Payments" covers the Payments v2 REST API (authorize, capture, refund).
-    {name: "PayPal Payments", docsUrl: "https://developer.paypal.com/docs/api/payments/v2/", targetTitle: ()},
+    //{name: "PayPal Payments", docsUrl: "https://developer.paypal.com/docs/api/payments/v2/", targetTitle: ()},
 
     // ── Insurance Platform ────────────────────────────────────────────────────
     // NOTE: Guidewire InsuranceNow API access requires a Guidewire partner or
     // customer account. The docsUrl points to the public InsuranceNow API page.
     // LLM strategy should consult the public reference and authenticate as needed.
-    {name: "Guidewire Insnow", docsUrl: "https://www.guidewire.com/Developers/APIs/InsuranceNow-APIs", targetTitle: ()},
+    //{name: "Guidewire Insnow", docsUrl: "https://www.guidewire.com/Developers/APIs/InsuranceNow-APIs", targetTitle: ()},
 
     // ── Marketing Automation ──────────────────────────────────────────────────
     // "Salesforce Marketingcloud" targets the Marketing Cloud Engagement REST API.
-    {name: "Salesforce Marketingcloud", docsUrl: "https://developer.salesforce.com/docs/marketing/marketing-cloud/guide/rest-api-overview.html", targetTitle: ()}
+    //{name: "Salesforce Marketingcloud", docsUrl: "https://developer.salesforce.com/docs/marketing/marketing-cloud/guide/rest-api-overview.html", targetTitle: ()}
 ];
