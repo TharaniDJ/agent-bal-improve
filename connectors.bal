@@ -193,59 +193,133 @@
 //                      proxy for OpenRouter; "OpenRouter" is the direct OpenRouter API.
 //   WSO2 API Manager Catalog — targets the Service Catalog v1 sub-API within APIM.
 
-public final Connector[] & readonly ALL_CONNECTORS = [
+//public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── Messaging (non-REST standard) ─────────────────────────────────────────
     // NOTE: Java JMS has no public OpenAPI/REST spec; the docsUrl below points
     // to the Jakarta Messaging 3.1 specification. LLM strategy must synthesize
     // the connector from the spec rather than fetching an OpenAPI document.
-    {name: "Java JMS", docsUrl: "https://jakarta.ee/specifications/messaging/3.1/", targetTitle: ()},
+    //{name: "Java JMS", docsUrl: "https://jakarta.ee/specifications/messaging/3.1/", targetTitle: ()},
 
     // ── Azure AI Search ───────────────────────────────────────────────────────
     // "Azure AI Search Index" covers the data-plane (index / query) operations.
     // "Azure AI Search" covers the management-plane (service administration) API.
-    {name: "Azure AI Search Index", docsUrl: "https://learn.microsoft.com/en-us/rest/api/searchservice/",    targetTitle: ()},
-    {name: "Azure AI Search",       docsUrl: "https://learn.microsoft.com/en-us/rest/api/searchmanagement/", targetTitle: ()},
+    //{name: "Azure AI Search Index", docsUrl: "https://learn.microsoft.com/en-us/rest/api/searchservice/",    targetTitle: ()},
+    //{name: "Azure AI Search",       docsUrl: "https://learn.microsoft.com/en-us/rest/api/searchmanagement/", targetTitle: ()},
 
     // ── AI Routing ────────────────────────────────────────────────────────────
     // "OpenRouter AI Gateway" = Cloudflare AI Gateway proxy in front of OpenRouter.
     // "OpenRouter" = the direct OpenRouter unified-LLM API.
-    {name: "OpenRouter AI Gateway", docsUrl: "https://developers.cloudflare.com/ai-gateway/usage/providers/openrouter/", targetTitle: ()},
-    {name: "OpenRouter",            docsUrl: "https://openrouter.ai/docs/api/reference/overview",                        targetTitle: ()},
+    //{name: "OpenRouter AI Gateway", docsUrl: "https://developers.cloudflare.com/ai-gateway/usage/providers/openrouter/", targetTitle: ()},
+    //{name: "OpenRouter",            docsUrl: "https://openrouter.ai/docs/api/reference/overview",                        targetTitle: ()},
 
     // ── WSO2 API Manager ──────────────────────────────────────────────────────
     // "WSO2 API Manager Catalog" targets the Service Catalog v1 REST API.
-    {name: "WSO2 API Manager Catalog", docsUrl: "https://apim.docs.wso2.com/en/latest/reference/product-apis/service-catalog-apis/service-catalog-v1/service-catalog-v1/", targetTitle: ()},
+    //{name: "WSO2 API Manager Catalog", docsUrl: "https://apim.docs.wso2.com/en/latest/reference/product-apis/service-catalog-apis/service-catalog-v1/service-catalog-v1/", targetTitle: ()},
 
     // ── Google Cloud Messaging ────────────────────────────────────────────────
-    {name: "Google Cloud Pub/Sub", docsUrl: "https://cloud.google.com/pubsub/docs/reference/rest", targetTitle: ()},
+    //{name: "Google Cloud Pub/Sub", docsUrl: "https://cloud.google.com/pubsub/docs/reference/rest", targetTitle: ()},
 
     // ── Healthcare Interoperability ───────────────────────────────────────────
     // NOTE: HL7 FHIR is the REST standard published by HL7. The docsUrl below
     // is the canonical FHIR RESTful API interaction reference (R5, current release).
-    {name: "HL7", docsUrl: "https://www.hl7.org/fhir/http.html", targetTitle: ()},
+   // {name: "HL7", docsUrl: "https://www.hl7.org/fhir/http.html", targetTitle: ()},
 
     // ── Project Management ────────────────────────────────────────────────────
-    {name: "Jira", docsUrl: "https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/", targetTitle: ()},
+    //{name: "Jira", docsUrl: "https://developer.atlassian.com/cloud/jira/platform/rest/v3/intro/", targetTitle: ()},
 
     // ── AI / Google Cloud ─────────────────────────────────────────────────────
-    {name: "AI GoogleAPIs Vertex", docsUrl: "https://cloud.google.com/vertex-ai/docs/reference/rest", targetTitle: ()},
+    //{name: "AI GoogleAPIs Vertex", docsUrl: "https://cloud.google.com/vertex-ai/docs/reference/rest", targetTitle: ()},
 
     // ── Nonprofit Data ────────────────────────────────────────────────────────
     // Candid hosts multiple specs under one docs URL; targetTitle selects the right one.
-    {name: "Candid", docsUrl: "https://developer.candid.org/reference/openapi", targetTitle: ()},
+    //{name: "Candid", docsUrl: "https://developer.candid.org/reference/openapi", targetTitle: ()},
 
     // ── Document Signing ──────────────────────────────────────────────────────
-    {name: "DocuSign eSign API", docsUrl: "https://developers.docusign.com/docs/esign-rest-api/", targetTitle: ()},
+    //{name: "DocuSign eSign API", docsUrl: "https://developers.docusign.com/docs/esign-rest-api/", targetTitle: ()},
 
     // ── AI / OpenAI ───────────────────────────────────────────────────────────
     // "OpenAI Audio" covers the /audio/* endpoints (speech, transcription, translation).
-    {name: "OpenAI Audio", docsUrl: "https://platform.openai.com/docs/api-reference/audio", targetTitle: ()},
+    //{name: "OpenAI Audio", docsUrl: "https://platform.openai.com/docs/api-reference/audio", targetTitle: ()},
 
     // ── Email Marketing ───────────────────────────────────────────────────────
-    {name: "Mailchimp Transactional", docsUrl: "https://mailchimp.com/developer/transactional/api/", targetTitle: ()},
+    //{name: "Mailchimp Transactional", docsUrl: "https://mailchimp.com/developer/transactional/api/", targetTitle: ()},
 
     // ── HubSpot CRM ───────────────────────────────────────────────────────────
     // "HubSpot CRM Associations" covers both v3 and v4 association detail endpoints.
-    {name: "HubSpot CRM Associations", docsUrl: "https://developers.hubspot.com/docs/api/crm/associations", targetTitle: ()}
+    //{name: "HubSpot CRM Associations", docsUrl: "https://developers.hubspot.com/docs/api/crm/associations", targetTitle: ()}
+//];
+
+// connectors.bal
+// Connector registry for the updated set of 15 connectors.
+//
+// docsUrl = the official API / spec documentation page for that connector.
+//           This is what the agent fetches to discover the spec URL.
+//
+// targetTitle = only set for multi-spec pages where one docs URL
+//               hosts several different specs.
+//
+// Notes on challenging connectors:
+//   AWS Marketplace MPE  — "MPE" = AWS Marketplace Metering and Entitlement API
+//                          (Metering Service, used by sellers to submit usage data).
+//   AWS Marketplace MPM  — "MPM" = AWS Marketplace Management Portal / Catalog API
+//                          (management-plane for managing products and offers).
+//   Guidewire InsNow     — The InsuranceNow API reference requires a Guidewire
+//                          partner/customer account for full access. The docsUrl
+//                          points to the public Guidewire developer API page for
+//                          InsuranceNow; the LLM strategy must authenticate or
+//                          approximate from the public-facing spec.
+//   Salesforce MC        — "Salesforce Marketingcloud" maps to Salesforce Marketing
+//                          Cloud Engagement REST API on developer.salesforce.com.
+
+public final Connector[] & readonly ALL_CONNECTORS = [
+
+    // ── HubSpot CRM ───────────────────────────────────────────────────────────
+    // "HubSpot CRM Obj Contacts" covers the v3 CRM Contacts object endpoints.
+    {name: "HubSpot CRM Obj Contacts", docsUrl: "https://developers.hubspot.com/docs/reference/api/crm/objects/contacts/v3", targetTitle: ()},
+
+    // ── AWS Marketplace ───────────────────────────────────────────────────────
+    // "AWS Marketplace MPE" = Metering and Entitlement (Metering Service API).
+    // "AWS Marketplace MPM" = Management Portal / Catalog API (seller management plane).
+    {name: "AWS Marketplace MPE", docsUrl: "https://docs.aws.amazon.com/marketplace/latest/APIReference/API_Operations_AWSMarketplace_Metering.html", targetTitle: ()},
+    {name: "AWS Marketplace MPM", docsUrl: "https://docs.aws.amazon.com/marketplace/latest/APIReference/welcome.html",                                 targetTitle: ()},
+
+    // ── Content Management ────────────────────────────────────────────────────
+    {name: "Alfresco", docsUrl: "https://docs.alfresco.com/content-services/latest/develop/rest-api-guide/", targetTitle: ()},
+
+    // ── AI / OpenAI ───────────────────────────────────────────────────────────
+    // "OpenAI Fine-Tunes" covers the /v1/fine_tuning/* endpoints (fine-tuning jobs).
+    // "OpenAI" covers the full OpenAI REST API reference (all endpoints).
+    {name: "OpenAI Fine-Tunes", docsUrl: "https://platform.openai.com/docs/api-reference/fine-tuning", targetTitle: ()},
+    {name: "OpenAI",            docsUrl: "https://platform.openai.com/docs/api-reference/introduction", targetTitle: ()},
+
+    // ── Messaging / Community ─────────────────────────────────────────────────
+    {name: "Discord", docsUrl: "https://discord.com/developers/docs/reference", targetTitle: ()},
+
+    // ── Document Signing ──────────────────────────────────────────────────────
+    // "DocuSign Click" covers the Click API (elastic template / clickwrap consent).
+    {name: "DocuSign Click", docsUrl: "https://developers.docusign.com/docs/click-api/", targetTitle: ()},
+
+    // ── HubSpot Marketing ─────────────────────────────────────────────────────
+    {name: "HubSpot Marketing Emails",       docsUrl: "https://developers.hubspot.com/docs/reference/api/marketing/emails/marketing-emails",      targetTitle: ()},
+    {name: "HubSpot Marketing Forms",        docsUrl: "https://developers.hubspot.com/docs/reference/api/marketing/forms/v3",                     targetTitle: ()},
+    {name: "HubSpot Marketing Transactional",docsUrl: "https://developers.hubspot.com/docs/reference/api/marketing/emails/transactional-emails",  targetTitle: ()},
+
+    // ── HubSpot CRM ───────────────────────────────────────────────────────────
+    // "HubSpot CRM Import" covers the CRM Imports v3 endpoints.
+    {name: "HubSpot CRM Import", docsUrl: "https://developers.hubspot.com/docs/reference/api/crm/imports", targetTitle: ()},
+
+    // ── Payments ──────────────────────────────────────────────────────────────
+    // "PayPal Payments" covers the Payments v2 REST API (authorize, capture, refund).
+    {name: "PayPal Payments", docsUrl: "https://developer.paypal.com/docs/api/payments/v2/", targetTitle: ()},
+
+    // ── Insurance Platform ────────────────────────────────────────────────────
+    // NOTE: Guidewire InsuranceNow API access requires a Guidewire partner or
+    // customer account. The docsUrl points to the public InsuranceNow API page.
+    // LLM strategy should consult the public reference and authenticate as needed.
+    {name: "Guidewire Insnow", docsUrl: "https://www.guidewire.com/Developers/APIs/InsuranceNow-APIs", targetTitle: ()},
+
+    // ── Marketing Automation ──────────────────────────────────────────────────
+    // "Salesforce Marketingcloud" targets the Marketing Cloud Engagement REST API.
+    {name: "Salesforce Marketingcloud", docsUrl: "https://developer.salesforce.com/docs/marketing/marketing-cloud/guide/rest-api-overview.html", targetTitle: ()}
 ];
