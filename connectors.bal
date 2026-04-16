@@ -484,30 +484,30 @@ public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── HubSpot CRM Engagements ───────────────────────────────────────────────
     // "HubSpot CRM Engagements Calls" covers the Calls engagement object endpoints.
-    {name: "HubSpot CRM Engagements Calls", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Engagements Calls", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
 
     // ── Project Management ────────────────────────────────────────────────────
     // "Smartsheet" covers the full Smartsheet REST API v2 (sheets, rows,
     // columns, reports, users, and more).
-    {name: "Smartsheet", docsUrl: "https://developers.smartsheet.com/api/smartsheet/introduction", targetTitle: ()},
+    {name: "Smartsheet", docsUrl: "https://developers.smartsheet.com/api/smartsheet/introduction", targetTitle: ()}
 
     // ── HubSpot CRM Extensions ────────────────────────────────────────────────
     // "HubSpot CRM Extensions Videoconferencing" covers the Video Conferencing
     // Extension API for embedding video links in CRM meetings.
-    {name: "HubSpot CRM Extensions Videoconferencing", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Extensions Videoconferencing", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
 
     // ── Payments ──────────────────────────────────────────────────────────────
     // "PayPal Invoices" covers the Invoicing v2 REST API (create, send, track
     // and manage invoices and payment records).
     // "PayPal Subscriptions" covers the Subscriptions v1 REST API (plans,
     // subscriptions, billing cycles, and trial periods).
-    {name: "PayPal Invoices",       docsUrl: "https://developer.paypal.com/docs/api/invoicing/v2/",     targetTitle: ()},
-    {name: "PayPal Subscriptions",  docsUrl: "https://developer.paypal.com/docs/api/subscriptions/v1/", targetTitle: ()},
+    //{name: "PayPal Invoices",       docsUrl: "https://developer.paypal.com/docs/api/invoicing/v2/",     targetTitle: ()},
+    //{name: "PayPal Subscriptions",  docsUrl: "https://developer.paypal.com/docs/api/subscriptions/v1/", targetTitle: ()},
 
     // ── Search / Observability ────────────────────────────────────────────────
     // "Elastic Cloud" covers the Elastic Cloud REST API (hosted Elasticsearch
     // Service): create/manage deployments, traffic filters, extensions, etc.
-    {name: "Elastic Cloud", docsUrl: "https://www.elastic.co/docs/api/doc/cloud/", targetTitle: ()},
+    //{name: "Elastic Cloud", docsUrl: "https://www.elastic.co/docs/api/doc/cloud/", targetTitle: ()},
 
     // ── Healthcare / FHIR ─────────────────────────────────────────────────────
     // "Epic FHIR" covers the Epic on FHIR R4 API specifications available at
@@ -516,7 +516,7 @@ public final Connector[] & readonly ALL_CONNECTORS = [
     // (formerly Cerner Ignite APIs).
     // "AthenaHealth FHIR" covers the athenahealth FHIR R4 APIs available via
     // the athenahealth Developer Portal.
-    {name: "Epic FHIR",        docsUrl: "https://fhir.epic.com/Specifications",        targetTitle: ()},
-    {name: "Cerner FHIR",      docsUrl: "https://docs.oracle.com/en/industries/health/millennium-platform-apis/mfrap/r4_overview.html", targetTitle: ()},
-    {name: "AthenaHealth FHIR",docsUrl: "https://docs.athenahealth.com/api/docs/fhir-apis", targetTitle: ()}
+    //{name: "Epic FHIR",        docsUrl: "https://fhir.epic.com/Specifications",        targetTitle: ()},
+    //{name: "Cerner FHIR",      docsUrl: "https://docs.oracle.com/en/industries/health/millennium-platform-apis/mfrap/r4_overview.html", targetTitle: ()},
+    //{name: "AthenaHealth FHIR",docsUrl: "https://docs.athenahealth.com/api/docs/fhir-apis", targetTitle: ()}
 ];
