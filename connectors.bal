@@ -405,46 +405,118 @@
 //   Mailchimp Marketing      — Uses the official Mailchimp Developer API
 //                              reference for the Marketing API v3.
 
-public final Connector[] & readonly ALL_CONNECTORS = [
+//public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── HubSpot CRM Objects ───────────────────────────────────────────────────
-    {name: "HubSpot CRM Obj Products",  docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
-    {name: "HubSpot CRM Obj Schemas",   docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
-    {name: "HubSpot CRM Obj Lineitems", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
-    {name: "HubSpot CRM Obj Leads",     docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Obj Products",  docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Obj Schemas",   docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Obj Lineitems", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Obj Leads",     docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
 
     // ── SAP Commerce ──────────────────────────────────────────────────────────
     // "SAP Commerce Webservices" covers the OCC (Omni Commerce Connect) v2
     // REST API on the SAP Business Accelerator Hub.
-    {name: "SAP Commerce Webservices", docsUrl: "https://api.sap.com/api/commerce_services/resource", targetTitle: ()},
+    //{name: "SAP Commerce Webservices", docsUrl: "https://api.sap.com/api/commerce_services/resource", targetTitle: ()},
 
     // ── HubSpot CRM Pipelines ─────────────────────────────────────────────────
-    {name: "HubSpot CRM Pipelines", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Pipelines", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
 
     // ── Video Conferencing ────────────────────────────────────────────────────
     // "Zoom Meetings" covers the Zoom Meetings REST API endpoints (create,
     // update, list, and manage meetings and their settings).
-    {name: "Zoom Meetings", docsUrl: "https://developers.zoom.us/docs/api/meetings/", targetTitle: ()},
+    //{name: "Zoom Meetings", docsUrl: "https://developers.zoom.us/docs/api/meetings/", targetTitle: ()},
 
     // ── HubSpot CRM Commerce ──────────────────────────────────────────────────
-    {name: "HubSpot CRM Commerce Quotes", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
-    {name: "HubSpot CRM Commerce Orders", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
-    {name: "HubSpot CRM Commerce Taxes",  docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Commerce Quotes", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Commerce Orders", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Commerce Taxes",  docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
 
     // ── HubSpot CRM Engagements ───────────────────────────────────────────────
-    {name: "HubSpot CRM Engagements Communications", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Engagements Communications", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
 
     // ── Email Marketing ───────────────────────────────────────────────────────
     // "Mailchimp Marketing" covers the Mailchimp Marketing API v3 (audiences,
     // campaigns, automations, reports, and related resources).
-    {name: "Mailchimp Marketing", docsUrl: "https://mailchimp.com/developer/marketing/api/", targetTitle: ()},
+    //{name: "Mailchimp Marketing", docsUrl: "https://mailchimp.com/developer/marketing/api/", targetTitle: ()},
 
     // ── HubSpot CRM Associations ──────────────────────────────────────────────
-    {name: "HubSpot CRM Associations Schema", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Associations Schema", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
 
     // ── HubSpot CRM Engagements ───────────────────────────────────────────────
-    {name: "HubSpot CRM Engagements Tasks", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Engagements Tasks", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
 
     // ── HubSpot CRM ───────────────────────────────────────────────────────────
-    {name: "HubSpot CRM Owners", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()}
+    //{name: "HubSpot CRM Owners", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()}
+//];
+
+// connectors.bal
+// Connector registry for the updated set of 9 connectors.
+//
+// docsUrl = the official API / spec documentation page for that connector.
+//           This is what the agent fetches to discover the spec URL.
+//
+// targetTitle = only set for multi-spec pages where one docs URL
+//               hosts several different specs.
+//
+// Notes on HubSpot connectors:
+//   All HubSpot connectors use the HubSpot public API spec collection on GitHub
+//   as their docsUrl, since individual reference pages are generated from these
+//   OpenAPI specs:
+//     https://github.com/HubSpot/HubSpot-public-api-spec-collection
+//
+// Notes on other connectors:
+//   Smartsheet          — Uses the official Smartsheet Developer Portal API
+//                         reference at developers.smartsheet.com/api.
+//   PayPal Invoices     — Uses the PayPal Developer Docs REST API reference
+//                         for the Invoicing v2 API.
+//   PayPal Subscriptions— Uses the PayPal Developer Docs REST API reference
+//                         for the Subscriptions v1 API.
+//   Elastic Cloud       — Uses the official Elastic docs page for the
+//                         Elastic Cloud REST API (hosted/ESS).
+//   Epic FHIR           — Uses the Epic on FHIR developer portal at fhir.epic.com,
+//                         which hosts all FHIR R4 API specifications.
+//   Cerner FHIR         — Uses the official Oracle Health Millennium Platform
+//                         FHIR R4 API reference documentation.
+//   AthenaHealth FHIR   — Uses the official athenahealth Developer Portal
+//                         FHIR APIs documentation page.
+
+public final Connector[] & readonly ALL_CONNECTORS = [
+
+    // ── HubSpot CRM Engagements ───────────────────────────────────────────────
+    // "HubSpot CRM Engagements Calls" covers the Calls engagement object endpoints.
+    {name: "HubSpot CRM Engagements Calls", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+
+    // ── Project Management ────────────────────────────────────────────────────
+    // "Smartsheet" covers the full Smartsheet REST API v2 (sheets, rows,
+    // columns, reports, users, and more).
+    {name: "Smartsheet", docsUrl: "https://developers.smartsheet.com/api/smartsheet/introduction", targetTitle: ()},
+
+    // ── HubSpot CRM Extensions ────────────────────────────────────────────────
+    // "HubSpot CRM Extensions Videoconferencing" covers the Video Conferencing
+    // Extension API for embedding video links in CRM meetings.
+    {name: "HubSpot CRM Extensions Videoconferencing", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+
+    // ── Payments ──────────────────────────────────────────────────────────────
+    // "PayPal Invoices" covers the Invoicing v2 REST API (create, send, track
+    // and manage invoices and payment records).
+    // "PayPal Subscriptions" covers the Subscriptions v1 REST API (plans,
+    // subscriptions, billing cycles, and trial periods).
+    {name: "PayPal Invoices",       docsUrl: "https://developer.paypal.com/docs/api/invoicing/v2/",     targetTitle: ()},
+    {name: "PayPal Subscriptions",  docsUrl: "https://developer.paypal.com/docs/api/subscriptions/v1/", targetTitle: ()},
+
+    // ── Search / Observability ────────────────────────────────────────────────
+    // "Elastic Cloud" covers the Elastic Cloud REST API (hosted Elasticsearch
+    // Service): create/manage deployments, traffic filters, extensions, etc.
+    {name: "Elastic Cloud", docsUrl: "https://www.elastic.co/docs/api/doc/cloud/", targetTitle: ()},
+
+    // ── Healthcare / FHIR ─────────────────────────────────────────────────────
+    // "Epic FHIR" covers the Epic on FHIR R4 API specifications available at
+    // the official Epic developer portal (fhir.epic.com).
+    // "Cerner FHIR" covers the Oracle Health Millennium Platform FHIR R4 APIs
+    // (formerly Cerner Ignite APIs).
+    // "AthenaHealth FHIR" covers the athenahealth FHIR R4 APIs available via
+    // the athenahealth Developer Portal.
+    {name: "Epic FHIR",        docsUrl: "https://fhir.epic.com/Specifications",        targetTitle: ()},
+    {name: "Cerner FHIR",      docsUrl: "https://docs.oracle.com/en/industries/health/millennium-platform-apis/mfrap/r4_overview.html", targetTitle: ()},
+    {name: "AthenaHealth FHIR",docsUrl: "https://docs.athenahealth.com/api/docs/fhir-apis", targetTitle: ()}
 ];

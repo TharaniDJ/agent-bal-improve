@@ -1337,5 +1337,18 @@
         "status": "found",
         "checkedAt": "2026-04-16T09:37:33.114105Z",
         "elapsedSeconds": 30.8
+    },
+    {
+        "name": "HubSpot CRM Engagements Calls",
+        "docsUrl": "https://github.com/HubSpot/HubSpot-public-api-spec-collection",
+        "targetTitle": null,
+        "specUrl": "https://raw.githubusercontent.com/HubSpot/HubSpot-public-api-spec-collection/main/PublicApiSpecs/CRM/Calls/Rollouts/424/v3/calls.json",
+        "specRepo": "HubSpot/HubSpot-public-api-spec-collection",
+        "title": null,
+        "apiVersion": null,
+        "format": "json",
+        "status": "found",
+        "checkedAt": "2026-04-16T09:55:46.997527Z",
+        "elapsedSeconds": 33.4
     }
 ]
