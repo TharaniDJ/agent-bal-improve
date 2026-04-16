@@ -272,11 +272,11 @@
 //   Salesforce MC        — "Salesforce Marketingcloud" maps to Salesforce Marketing
 //                          Cloud Engagement REST API on developer.salesforce.com.
 
-public final Connector[] & readonly ALL_CONNECTORS = [
+//public final Connector[] & readonly ALL_CONNECTORS = [
 
     // ── HubSpot CRM ───────────────────────────────────────────────────────────
     // "HubSpot CRM Obj Contacts" covers the v3 CRM Contacts object endpoints.
-    {name: "HubSpot CRM Obj Contacts", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    //{name: "HubSpot CRM Obj Contacts", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
 
     // ── AWS Marketplace ───────────────────────────────────────────────────────
     // "AWS Marketplace MPE" = Metering and Entitlement (Metering Service API).
@@ -301,13 +301,13 @@ public final Connector[] & readonly ALL_CONNECTORS = [
     //{name: "DocuSign Click", docsUrl: "https://developers.docusign.com/docs/click-api/", targetTitle: ()},
 
     // ── HubSpot Marketing ─────────────────────────────────────────────────────
-    {name: "HubSpot Marketing Emails",       docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection",      targetTitle: ()},
-    {name: "HubSpot Marketing Forms",        docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection",                     targetTitle: ()},
-    {name: "HubSpot Marketing Transactional",docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection",  targetTitle: ()},
+    //{name: "HubSpot Marketing Emails",       docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection",      targetTitle: ()},
+    //{name: "HubSpot Marketing Forms",        docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection",                     targetTitle: ()},
+    //{name: "HubSpot Marketing Transactional",docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection",  targetTitle: ()},
 
     // ── HubSpot CRM ───────────────────────────────────────────────────────────
     // "HubSpot CRM Import" covers the CRM Imports v3 endpoints.
-    {name: "HubSpot CRM Import", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()}
+    //{name: "HubSpot CRM Import", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()}
 
     // ── Payments ──────────────────────────────────────────────────────────────
     // "PayPal Payments" covers the Payments v2 REST API (authorize, capture, refund).
@@ -322,4 +322,62 @@ public final Connector[] & readonly ALL_CONNECTORS = [
     // ── Marketing Automation ──────────────────────────────────────────────────
     // "Salesforce Marketingcloud" targets the Marketing Cloud Engagement REST API.
     //{name: "Salesforce Marketingcloud", docsUrl: "https://developer.salesforce.com/docs/marketing/marketing-cloud/guide/rest-api-overview.html", targetTitle: ()}
+//];
+
+// connectors.bal
+// Connector registry for the updated set of 15 connectors.
+//
+// docsUrl = the official API / spec documentation page for that connector.
+//           This is what the agent fetches to discover the spec URL.
+//
+// targetTitle = only set for multi-spec pages where one docs URL
+//               hosts several different specs.
+//
+// Notes on HubSpot connectors:
+//   All HubSpot connectors use the HubSpot public API spec collection on GitHub
+//   as their docsUrl, since individual reference pages are generated from these
+//   OpenAPI specs:
+//     https://github.com/HubSpot/HubSpot-public-api-spec-collection
+//
+// Notes on Zoom Scheduler:
+//   Uses the official Zoom Developer Docs REST API reference for the
+//   Scheduler product:
+//     https://developers.zoom.us/docs/api/rest/zoom-scheduler-api/
+
+public final Connector[] & readonly ALL_CONNECTORS = [
+
+    // ── HubSpot CRM Extensions ────────────────────────────────────────────────
+    // "HubSpot CRM Extensions Timelines" covers the CRM Timeline Extensions API
+    // (custom timeline events on CRM records).
+    {name: "HubSpot CRM Extensions Timelines", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+
+    // ── HubSpot Marketing ─────────────────────────────────────────────────────
+    {name: "HubSpot Marketing Events",       docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    {name: "HubSpot Marketing Campaigns",    docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    {name: "HubSpot Marketing Subscriptions",docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+
+    // ── HubSpot CRM Engagements ───────────────────────────────────────────────
+    {name: "HubSpot CRM Engagements Email", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    {name: "HubSpot CRM Engagement Notes",  docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+
+    // ── HubSpot CRM Lists ─────────────────────────────────────────────────────
+    {name: "HubSpot CRM Lists", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+
+    // ── HubSpot CRM Commerce ──────────────────────────────────────────────────
+    {name: "HubSpot CRM Commerce Carts",     docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    {name: "HubSpot CRM Commerce Discounts", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+
+    // ── HubSpot CRM Properties ────────────────────────────────────────────────
+    {name: "HubSpot CRM Properties", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+
+    // ── HubSpot CRM Objects ───────────────────────────────────────────────────
+    {name: "HubSpot CRM Obj Companies", docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    {name: "HubSpot CRM Obj Deals",     docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    {name: "HubSpot CRM Obj Feedback",  docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+    {name: "HubSpot CRM Obj Tickets",   docsUrl: "https://github.com/HubSpot/HubSpot-public-api-spec-collection", targetTitle: ()},
+
+    // ── Video Conferencing / Scheduling ───────────────────────────────────────
+    // "Zoom Scheduler" covers the Zoom Scheduler REST API (scheduling links,
+    // event types, and appointments integrated with Zoom Meetings and calendars).
+    {name: "Zoom Scheduler", docsUrl: "https://developers.zoom.us/docs/api/rest/zoom-scheduler-api/", targetTitle: ()}
 ];
