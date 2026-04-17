@@ -1,23 +1,17 @@
 // main.bal
 // Entry point — runs the agent for each connector SEQUENTIALLY, one at a time.
 //
-// Sequential mode makes logs easy to read and failures easy to spot.
-// With 500+ connectors the full run takes longer, but you get clean per-connector
-// output and the file is saved after every single connector so no progress is lost.
+// FIX (2026-04-17): `processConnector` is now wrapped in a hard wall-clock
+// budget (MAX_CONNECTOR_SECONDS, default 300 s).  Previously this constant
+// was defined but never actually enforced — one stuck HTTP call could freeze
+// the whole run.  The budget is enforced by racing the work against a timer
+// worker, same pattern as withTimeout() in agent.bal.
 //
-// Usage:
-//   ANTHROPIC_API_KEY=sk-...  bal run .
-//   ANTHROPIC_API_KEY=sk-...  FILTER=github bal run .
-//   ANTHROPIC_API_KEY=sk-...  GITHUB_TOKEN=ghp_...  bal run .
-//   DRY_RUN=true bal run .
-//
-// Debug mode (verbose logs for every HTTP call, fetch timing, Claude turns):
-//   bal run . --log-level=DEBUG
-//
-// The debug flag enables log:printDebug() calls throughout agent.bal and
-// pipeline.bal so you can trace exactly where a connector hangs or fails.
+// Override the budget via env var:
+//   MAX_CONNECTOR_SECONDS=180 bal run .
 
 import ballerina/io;
+import ballerina/lang.runtime;
 import ballerina/log;
 import ballerina/os;
 import ballerina/time;
@@ -28,8 +22,7 @@ configurable string outputFile = "openapi_specs.json";
 const string BAR  = "================================================================";
 const string DASH = "----------------------------------------------------------------";
 
-// Maximum wall-clock seconds allowed for a single connector (all steps combined).
-// Override via MAX_CONNECTOR_SECONDS env var.  Default: 300 s (5 minutes).
+// Hard wall-clock ceiling for a single connector, all steps combined.
 const decimal DEFAULT_MAX_CONNECTOR_SECONDS = 300.0;
 
 public function main() returns error? {
@@ -39,6 +32,16 @@ public function main() returns error? {
     string outFile   = os:getEnv("OUTPUT").length() > 0 ? os:getEnv("OUTPUT") : outputFile;
     string ghToken   = os:getEnv("GITHUB_TOKEN");
     string model     = os:getEnv("CLAUDE_MODEL").length() > 0 ? os:getEnv("CLAUDE_MODEL") : "claude-sonnet-4-6";
+
+    // Resolve per-connector budget from env
+    decimal maxConnectorSecs = DEFAULT_MAX_CONNECTOR_SECONDS;
+    string envBudget = os:getEnv("MAX_CONNECTOR_SECONDS");
+    if envBudget.length() > 0 {
+        decimal|error parsed = decimal:fromString(envBudget);
+        if parsed is decimal {
+            maxConnectorSecs = parsed;
+        }
+    }
 
     Connector[] connectors = filterStr.length() > 0
         ? ALL_CONNECTORS.filter(c => c.name.toLowerAscii().includes(filterStr))
@@ -66,12 +69,13 @@ public function main() returns error? {
 
     io:println(BAR);
     io:println("  OpenAPI Spec Finder");
-    io:println(string `  Model  : ${model}`);
-    io:println(string `  GitHub : ${ghToken.length() > 0 ? "token set" : "no token (rate limit: 60/hr)"}`);
-    io:println(string `  Output : ${outFile}`);
-    io:println(string `  APIs   : ${connectors.length()}`);
-    io:println(string `  Mode   : sequential (one at a time)`);
-    io:println(string `  Debug  : run with --log-level=DEBUG for verbose fetch/timing logs`);
+    io:println(string `  Model    : ${model}`);
+    io:println(string `  GitHub   : ${ghToken.length() > 0 ? "token set" : "no token (rate limit: 60/hr)"}`);
+    io:println(string `  Output   : ${outFile}`);
+    io:println(string `  APIs     : ${connectors.length()}`);
+    io:println(string `  Mode     : sequential (one at a time)`);
+    io:println(string `  Max/conn : ${maxConnectorSecs}s (override via MAX_CONNECTOR_SECONDS)`);
+    io:println(string `  Debug    : run with --log-level=DEBUG for verbose fetch/timing logs`);
     io:println(BAR);
     io:println("");
 
@@ -90,7 +94,7 @@ public function main() returns error? {
     int notFound = 0;
     int total = connectors.length();
 
-    // ── Sequential loop — one connector at a time ─────────────────────────────
+    // ── Sequential loop ───────────────────────────────────────────────────────
     int idx = 0;
     foreach Connector c in connectors {
         idx += 1;
@@ -116,7 +120,8 @@ public function main() returns error? {
             io:println(string `${progress} START  ${label}  (no previous URL)`);
         }
 
-        ResultEntry entry = processConnector(c, knownUrl, knownRepo, apiKey, progress);
+        // ── Run with a hard wall-clock budget ─────────────────────────────────
+        ResultEntry entry = runConnectorWithBudget(c, knownUrl, knownRepo, apiKey, progress, maxConnectorSecs);
 
         if entry.status == "found" {
             found += 1;
@@ -129,7 +134,6 @@ public function main() returns error? {
             log:printWarn(string `${progress} NOT FOUND: ${label} | docs=${c.docsUrl}`);
         }
 
-        // Merge into results array
         if existingIdx.hasKey(entry.name) {
             results[existingIdx.get(entry.name)] = entry;
         } else {
@@ -137,7 +141,6 @@ public function main() returns error? {
             results.push(entry);
         }
 
-        // Save after every single connector — no progress is lost
         error? saveErr = saveResults(results, outFile);
         if saveErr is error {
             log:printError(string `${progress} save failed: ${saveErr.message()}`);
@@ -154,6 +157,51 @@ public function main() returns error? {
     io:println(BAR);
 }
 
+// ─── Budget-enforced connector runner ─────────────────────────────────────────
+//
+// Races processConnector against a sleep.  If the sleep wins, we mark the
+// connector as not_found with a clear "budget exceeded" reason.  The still-
+// running worker will be abandoned — Ballerina does not give us a way to
+// cancel a worker from outside, but since the main loop moves on and the
+// process keeps going, this is acceptable.  The hung worker will complete
+// eventually (or not) and its result will be discarded.
+
+function runConnectorWithBudget(
+    Connector c,
+    string? knownUrl,
+    string? knownRepo,
+    string apiKey,
+    string progress,
+    decimal budgetSecs
+) returns ResultEntry {
+
+    time:Utc t0 = time:utcNow();
+
+    worker processor returns ResultEntry {
+        return processConnector(c, knownUrl, knownRepo, apiKey, progress);
+    }
+    worker timer returns ResultEntry {
+        runtime:sleep(budgetSecs);
+        decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
+        log:printError(string `${progress} BUDGET EXCEEDED after ${elapsed}s — abandoning connector`);
+        return {
+            name:           c.name,
+            docsUrl:        c.docsUrl,
+            targetTitle:    c.targetTitle,
+            specUrl:        (),
+            specRepo:       (),
+            title:          (),
+            apiVersion:     (),
+            format:         (),
+            status:         "not_found",
+            checkedAt:      time:utcToString(time:utcNow()),
+            elapsedSeconds: elapsed
+        };
+    }
+    ResultEntry result = wait processor | timer;
+    return result;
+}
+
 // ─── Per-connector work ───────────────────────────────────────────────────────
 
 function processConnector(
@@ -161,29 +209,14 @@ function processConnector(
     string? knownUrl,
     string? knownRepo,
     string apiKey,
-    string progress    // e.g. "[3/500]" — threaded through for log prefixing
+    string progress
 ) returns ResultEntry {
 
     time:Utc t0 = time:utcNow();
     SpecResult? finalResult = ();
 
     if knownUrl is string {
-        // ── Path A: We have a known URL from a previous run ──────────────────
-        //
-        // Sub-paths:
-        //   A1 — stable direct endpoint (CDN, vendor portal): LLM validates + checks for newer
-        //   A2 — raw.githubusercontent.com URL: LLM checks parent folder for newer version
-        //
-        // After any version-check step:
-        //   • SpecResult  → confirmed (same or newer URL); done
-        //   • "DEAD"      → URL is gone; re-discover from scratch (knownUrl not useful)
-        //   • ()          → Claude API error / exhausted turns; the URL may still be valid:
-        //                   first try a fast programmatic check of the known URL, and only
-        //                   fall back to full re-discovery if that also fails.
-        //                   In both re-discovery cases, pass knownUrl as a hint to Claude.
-
         if !knownUrl.includes("raw.githubusercontent.com") {
-            // A1: Stable direct endpoint
             log:printInfo(string `${progress} path=stable-version-check`);
             SpecResult?|string stableResult = stepQuickVerify(knownUrl, knownRepo, c.docsUrl, apiKey);
 
@@ -191,13 +224,11 @@ function processConnector(
                 log:printInfo(string `${progress} stable-version-check => confirmed`);
                 finalResult = stableResult;
             } else if stableResult is string {
-                // URL confirmed dead — re-discover without the dead URL
                 log:printWarn(string `${progress} stable URL is DEAD — re-discovering`);
                 DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
                 log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
                 finalResult = stepContentVerify(disc);
             } else {
-                // Claude API error / timeout — try the known URL directly first
                 log:printWarn(string `${progress} stable-version-check inconclusive — trying direct verify of known URL`);
                 finalResult = directVerifyKnownUrl(knownUrl, knownRepo);
                 if finalResult is () {
@@ -209,9 +240,7 @@ function processConnector(
                     log:printInfo(string `${progress} direct verify succeeded — using known URL`);
                 }
             }
-
         } else {
-            // A2: GitHub raw URL
             log:printInfo(string `${progress} path=github-version-check`);
             SpecResult?|string checkResult = stepGithubVersionCheck(knownUrl, knownRepo, c.docsUrl, apiKey);
 
@@ -219,13 +248,11 @@ function processConnector(
                 log:printInfo(string `${progress} github-version-check => confirmed`);
                 finalResult = checkResult;
             } else if checkResult is string {
-                // URL confirmed dead — re-discover without the dead URL
                 log:printWarn(string `${progress} GitHub URL is DEAD — re-discovering`);
                 DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
                 log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
                 finalResult = stepContentVerify(disc);
             } else {
-                // Claude API error / timeout — try the known URL directly first
                 log:printWarn(string `${progress} github-version-check inconclusive — trying direct verify of known URL`);
                 finalResult = directVerifyKnownUrl(knownUrl, knownRepo);
                 if finalResult is () {
@@ -238,9 +265,7 @@ function processConnector(
                 }
             }
         }
-
     } else {
-        // ── Path B: No known URL — full discovery from scratch ───────────────
         log:printInfo(string `${progress} path=full-discovery`);
         DiscoveryResult disc = stepDiscovery(c.docsUrl, c.name, c.targetTitle, apiKey, knownRepo);
         log:printInfo(string `${progress} discovery found ${disc.candidateUrls.length()} candidate(s)`);
@@ -312,4 +337,3 @@ isolated function lp(string s, int w) returns string {
     while i < w { r += " "; i += 1; }
     return r + s;
 }
-

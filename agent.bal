@@ -1,30 +1,28 @@
 // agent.bal
-// Shared utilities used by all pipeline steps:
-//   - executeFetchPage()          — tool handler (HTML/JSON/YAML fetch + parse)
-//   - callClaude()                — Anthropic API call with timing logs
-//   - httpGetBody()               — raw HTTP GET, SPA fallback via browser service
-//   - httpGetBodyPartial()        — partial HTTP GET; handles large GitHub files via Git Blobs API
-//   - httpGetBodyFull()           — full HTTP GET for Java parser validation (no byte cap, 60 s timeout)
-//   - httpGetBodyPlain()          — plain HTTP GET with body cap
-//   - headOk()                    — HEAD check with fallback GET
-//   - parseGitHubRawUrl()         — decomposes raw.githubusercontent.com URLs
-//   - fetchViaGitBlobsApi()       — uses Git Data API for files > 1 MB (avoids CDN SSL issues)
-//   - HTML / string utilities
+// Shared utilities used by all pipeline steps.
 //
-// TIMEOUTS (all HTTP):
-//   Raw / spec files          : 25 s  (up from 20 s)
-//   HTML docs pages (plain)   : 15 s  (up from 12 s)
-//   Browser service           : 30 s
-//   HEAD checks               : 12 s  (up from 10 s)
-//   Claude API                : 120 s (up from 90 s)
-//   Git Blobs API fallback    : 30 s
-//   Full spec fetch (Java)    : 60 s  (httpGetBodyFull — no byte cap)
+// FIX (2026-04-17): wrapped every HTTP GET in a wall-clock timeout using a
+// Ballerina worker + `wait` with a timer.  Ballerina's http:Client `timeout`
+// is NOT honoured across redirects when the redirect target is on a different
+// host (the new client is created with defaults and can hang indefinitely on
+// a stalled TLS handshake).  This was causing 15+ min hangs on docs.stripe.com
+// and similar SPAs behind Cloudflare.
 //
-// Enable debug mode: bal run --log-level=DEBUG
-// or set LOG_LEVEL=DEBUG in your environment and pass --log-level=$LOG_LEVEL
+// The wall-clock timeout is enforced OUTSIDE the http client by racing the
+// fetch against a sleep in a separate worker.  This guarantees progress even
+// when the underlying socket is wedged.
+//
+// TIMEOUTS (hard wall-clock ceilings enforced by withTimeout):
+//   Raw / spec files          : 30 s
+//   HTML docs pages (plain)   : 20 s
+//   Browser service           : 35 s
+//   HEAD checks               : 15 s
+//   Git Blobs API fallback    : 35 s
+//   Full spec fetch (Java)    : 65 s
 
 import ballerina/http;
 import ballerina/lang.'array as langarray;
+import ballerina/lang.runtime;
 import ballerina/log;
 import ballerina/os;
 import ballerina/time;
@@ -49,6 +47,33 @@ final json FETCH_PAGE_TOOL = {
         "required": ["url"]
     }
 };
+
+// ─── Wall-clock timeout helper ────────────────────────────────────────────────
+//
+// Races `fetch` against a sleep.  Whichever finishes first wins.  If the sleep
+// wins, we return a timeout error — the underlying socket may still be open
+// but the caller is no longer blocked on it.
+//
+// NOTE: this does NOT forcibly close the hung socket (Ballerina has no API
+// for that from outside the client), but it does unblock the pipeline so the
+// overall run makes progress.  The hung connection will eventually be GC'd.
+//
+// NOTE 2: `runtime:sleep` takes a decimal number of seconds.
+
+type FetchFn function () returns string|error;
+
+function withTimeout(FetchFn fetch, decimal timeoutSecs, string opName) returns string|error {
+    worker fetcher returns string|error {
+        return fetch();
+    }
+    worker timer returns string|error {
+        runtime:sleep(timeoutSecs);
+        return error(string `${opName}: wall-clock timeout after ${timeoutSecs}s`);
+    }
+    // wait for whichever worker completes first
+    string|error result = wait fetcher | timer;
+    return result;
+}
 
 // ─── fetch_page tool handler ──────────────────────────────────────────────────
 
@@ -133,16 +158,13 @@ function executeFetchPage(string fetchUrl) returns string {
 
 // ─── GitHub raw URL decomposition ────────────────────────────────────────────
 
-// Parsed components of a raw.githubusercontent.com URL.
 type GitHubRawUrl record {|
     string owner;
     string repo;
     string branch;
-    string path;       // path/to/file.yaml
+    string path;
 |};
 
-// Decomposes https://raw.githubusercontent.com/OWNER/REPO/BRANCH/path/to/file
-// Returns () if the URL is not a raw GitHub URL or is malformed.
 isolated function parseGitHubRawUrl(string rawUrl) returns GitHubRawUrl? {
     string prefix = "raw.githubusercontent.com/";
     int? pi = rawUrl.indexOf(prefix);
@@ -186,25 +208,26 @@ function fetchViaGitBlobsApi(string rawUrl, int maxBytes, string ghToken) return
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
-    // ── Step 1: Get blob SHA from Contents API metadata ──────────────────────
+    // Step 1
     string metaUrl = string `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
     log:printDebug(string `    [blobs-api:step1] fetching metadata: ${metaUrl}`);
-    time:Utc t0 = time:utcNow();
 
-    http:Client metaClient = check new (metaUrl, {
-        followRedirects: {enabled: true, maxCount: 3},
-        timeout: 20,
-        secureSocket: {enable: true}
-    });
-    http:Response metaResp = check metaClient->get("", headers);
-    decimal metaElapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
-    log:printDebug(string `    [blobs-api:step1] status=${metaResp.statusCode} elapsed=${metaElapsed}s`);
+    string metaBody = check withTimeout(function () returns string|error {
+        time:Utc t0 = time:utcNow();
+        http:Client metaClient = check new (metaUrl, {
+            followRedirects: {enabled: true, maxCount: 3},
+            timeout: 20,
+            secureSocket: {enable: true}
+        });
+        http:Response metaResp = check metaClient->get("", headers);
+        decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
+        log:printDebug(string `    [blobs-api:step1] status=${metaResp.statusCode} elapsed=${elapsed}s`);
+        if metaResp.statusCode != 200 {
+            return error(string `Git Blobs API step1: HTTP ${metaResp.statusCode}`);
+        }
+        return metaResp.getTextPayload();
+    }, 35.0, "blobs-api-step1");
 
-    if metaResp.statusCode != 200 {
-        return error(string `Git Blobs API step1: HTTP ${metaResp.statusCode}`);
-    }
-
-    string metaBody = check metaResp.getTextPayload();
     json|error metaJson = metaBody.fromJsonString();
     if metaJson is error {
         return error(string `Git Blobs API step1: cannot parse metadata JSON: ${metaJson.message()}`);
@@ -223,7 +246,7 @@ function fetchViaGitBlobsApi(string rawUrl, int maxBytes, string ghToken) return
     }
     log:printDebug(string `    [blobs-api:step1] blob SHA=${sha} size=${fileSize}`);
 
-    // ── Step 2: Fetch raw blob content via Git Data API ───────────────────────
+    // Step 2
     string blobUrl = string `https://api.github.com/repos/${owner}/${repo}/git/blobs/${sha}`;
     map<string|string[]> blobHeaders = {
         "User-Agent": "openapi-spec-finder/1.0",
@@ -234,25 +257,25 @@ function fetchViaGitBlobsApi(string rawUrl, int maxBytes, string ghToken) return
     }
 
     log:printDebug(string `    [blobs-api:step2] fetching raw blob: ${blobUrl}`);
-    time:Utc t1 = time:utcNow();
 
-    http:Client blobClient = check new (blobUrl, {
-        followRedirects: {enabled: true, maxCount: 5},
-        timeout: 30,
-        secureSocket: {enable: true}
-    });
-    http:Response blobResp = check blobClient->get("", blobHeaders);
-    decimal blobElapsed = rd(time:utcDiffSeconds(time:utcNow(), t1));
-    log:printDebug(string `    [blobs-api:step2] status=${blobResp.statusCode} elapsed=${blobElapsed}s`);
+    string blobBody = check withTimeout(function () returns string|error {
+        time:Utc t1 = time:utcNow();
+        http:Client blobClient = check new (blobUrl, {
+            followRedirects: {enabled: true, maxCount: 5},
+            timeout: 30,
+            secureSocket: {enable: true}
+        });
+        http:Response blobResp = check blobClient->get("", blobHeaders);
+        decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t1));
+        log:printDebug(string `    [blobs-api:step2] status=${blobResp.statusCode} elapsed=${elapsed}s`);
+        if blobResp.statusCode != 200 {
+            return error(string `Git Blobs API step2: HTTP ${blobResp.statusCode}`);
+        }
+        return blobResp.getTextPayload();
+    }, 35.0, "blobs-api-step2");
 
-    if blobResp.statusCode != 200 {
-        return error(string `Git Blobs API step2: HTTP ${blobResp.statusCode}`);
-    }
-
-    string blobBody = check blobResp.getTextPayload();
     log:printDebug(string `    [blobs-api:step2] received ${blobBody.length()} bytes`);
 
-    // ── Base64 fallback ───────────────────────────────────────────────────────
     if blobBody.trim().startsWith("{") && blobBody.includes("\"encoding\"") {
         log:printDebug("    [blobs-api:step2] response looks like JSON blob envelope — attempting base64 decode");
         string? decoded = decodeGitHubBlobBase64(blobBody, maxBytes);
@@ -338,7 +361,6 @@ function callClaude(string apiKey, string model, json[] messages, string systemP
 
 // ─── HTTP helpers ─────────────────────────────────────────────────────────────
 
-// Returns true for raw spec/API file URLs (GitHub API, .yaml, .yml, .json).
 isolated function isRawContentUrl(string rawUrl) returns boolean {
     string lo = rawUrl.toLowerAscii();
     if lo.includes("api.github.com") { return true; }
@@ -347,52 +369,46 @@ isolated function isRawContentUrl(string rawUrl) returns boolean {
     return false;
 }
 
-// Fetches a URL via the local browser service (browser-service/server.js).
 function httpGetBodyViaBrowserService(string targetUrl) returns string|error {
     log:printInfo(string `    [browser-service] ${targetUrl}`);
     log:printDebug(string `    [browser-service:debug] connecting to localhost:3456`);
-    time:Utc t0 = time:utcNow();
 
-    http:Client cl = check new ("http://localhost:3456", {timeout: 30});
+    return withTimeout(function () returns string|error {
+        time:Utc t0 = time:utcNow();
+        http:Client cl = check new ("http://localhost:3456", {timeout: 30});
+        string encodedUrl = check url:encode(targetUrl, "UTF-8");
+        http:Response resp = check cl->get(string `/fetch?url=${encodedUrl}`);
 
-    string encodedUrl = check url:encode(targetUrl, "UTF-8");
-    http:Response resp = check cl->get(string `/fetch?url=${encodedUrl}`);
+        decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
+        log:printDebug(string `    [browser-service:debug] response status=${resp.statusCode} elapsed=${elapsed}s`);
 
-    decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
-    log:printDebug(string `    [browser-service:debug] response status=${resp.statusCode} elapsed=${elapsed}s`);
+        if resp.statusCode != 200 {
+            string errBody = check resp.getTextPayload();
+            int cap = errBody.length() > 200 ? 200 : errBody.length();
+            return error(string `BrowserService ${resp.statusCode}: ${errBody.substring(0, cap)}`);
+        }
 
-    if resp.statusCode != 200 {
-        string errBody = check resp.getTextPayload();
-        int cap = errBody.length() > 200 ? 200 : errBody.length();
-        return error(string `BrowserService ${resp.statusCode}: ${errBody.substring(0, cap)}`);
-    }
+        json respJson = check resp.getJsonPayload();
+        map<json> respMap = check respJson.cloneWithType();
 
-    json respJson = check resp.getJsonPayload();
-    map<json> respMap = check respJson.cloneWithType();
+        json errField = respMap["error"];
+        if errField != () && errField.toString().length() > 0 {
+            return error(string `BrowserService error: ${errField.toString()}`);
+        }
 
-    json errField = respMap["error"];
-    if errField != () && errField.toString().length() > 0 {
-        return error(string `BrowserService error: ${errField.toString()}`);
-    }
+        json htmlField = respMap["html"];
+        if htmlField == () {
+            return error("BrowserService: missing html field in response");
+        }
 
-    json htmlField = respMap["html"];
-    if htmlField == () {
-        return error("BrowserService: missing html field in response");
-    }
-
-    string html = htmlField.toString();
-    string capped = html.length() > 500000 ? html.substring(0, 500000) : html;
-    log:printInfo(string `    [browser-service] OK — ${html.length()} bytes (capped to ${capped.length()})`);
-    log:printDebug(string `    [browser-service:debug] received ${html.length()} bytes in ${elapsed}s`);
-    return capped;
+        string html = htmlField.toString();
+        string capped = html.length() > 500000 ? html.substring(0, 500000) : html;
+        log:printInfo(string `    [browser-service] OK — ${html.length()} bytes (capped to ${capped.length()})`);
+        return capped;
+    }, 35.0, "browser-service");
 }
 
-// Minimum visible text length to consider a plain-HTTP response "useful".
 const int MIN_USEFUL_TEXT_LENGTH = 500;
-
-// How many bytes of a raw spec file we request via Range header.
-// The Claude tool and looksLikeSpec() only need the first ~12 KB to detect
-// openapi/swagger fields.  Servers that ignore Range still return 200 + full body.
 const int SPEC_SNIPPET_BYTES = 12000;
 
 function httpGetBody(string fetchUrl) returns string|error {
@@ -406,21 +422,24 @@ function httpGetBody(string fetchUrl) returns string|error {
         int snapCap = SPEC_SNIPPET_BYTES - 1;
         headers["Range"] = string `bytes=0-${snapCap}`;
         log:printDebug(string `    [httpGetBody:debug] raw-content URL — direct fetch (Range:0-${snapCap}): ${fetchUrl}`);
-        time:Utc t0 = time:utcNow();
-        http:Client cl = check new (fetchUrl, {
-            followRedirects: {enabled: true, maxCount: 5},
-            timeout: 25,
-            secureSocket: {enable: true}
-        });
-        http:Response resp = check cl->get("", headers);
-        decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
-        log:printDebug(string `    [httpGetBody:debug] raw response status=${resp.statusCode} elapsed=${elapsed}s`);
-        if resp.statusCode != 200 && resp.statusCode != 206 {
-            return error(string `HTTP ${resp.statusCode}`);
-        }
-        string body = check resp.getTextPayload();
-        log:printDebug(string `    [httpGetBody:debug] raw body length=${body.length()}`);
-        return body;
+
+        return withTimeout(function () returns string|error {
+            time:Utc t0 = time:utcNow();
+            http:Client cl = check new (fetchUrl, {
+                followRedirects: {enabled: true, maxCount: 5},
+                timeout: 25,
+                secureSocket: {enable: true}
+            });
+            http:Response resp = check cl->get("", headers);
+            decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
+            log:printDebug(string `    [httpGetBody:debug] raw response status=${resp.statusCode} elapsed=${elapsed}s`);
+            if resp.statusCode != 200 && resp.statusCode != 206 {
+                return error(string `HTTP ${resp.statusCode}`);
+            }
+            string body = check resp.getTextPayload();
+            log:printDebug(string `    [httpGetBody:debug] raw body length=${body.length()}`);
+            return body;
+        }, 30.0, "raw-fetch");
     }
 
     log:printDebug(string `    [httpGetBody:debug] HTML page — trying plain HTTP: ${fetchUrl}`);
@@ -454,45 +473,33 @@ function httpGetBody(string fetchUrl) returns string|error {
     return plainResult;
 }
 
-// Plain HTTP fetch with body cap.
 function httpGetBodyPlain(string fetchUrl, map<string|string[]> headers, int maxBytes) returns string|error {
     log:printDebug(string `    [plain-http:debug] GET ${fetchUrl} maxBytes=${maxBytes}`);
-    time:Utc t0 = time:utcNow();
 
-    http:Client cl = check new (fetchUrl, {
-        followRedirects: {enabled: true, maxCount: 5},
-        timeout: 15,
-        secureSocket: {enable: true}
-    });
-    http:Response resp = check cl->get("", headers);
-    decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
-    log:printDebug(string `    [plain-http:debug] status=${resp.statusCode} elapsed=${elapsed}s`);
+    return withTimeout(function () returns string|error {
+        time:Utc t0 = time:utcNow();
+        http:Client cl = check new (fetchUrl, {
+            followRedirects: {enabled: true, maxCount: 5},
+            timeout: 15,
+            secureSocket: {enable: true}
+        });
+        http:Response resp = check cl->get("", headers);
+        decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
+        log:printDebug(string `    [plain-http:debug] status=${resp.statusCode} elapsed=${elapsed}s`);
 
-    if resp.statusCode != 200 {
-        return error(string `HTTP ${resp.statusCode}`);
-    }
-    string body = check resp.getTextPayload();
-    string result = body.length() > maxBytes ? body.substring(0, maxBytes) : body;
-    log:printDebug(string `    [plain-http:debug] body=${body.length()} capped=${result.length()}`);
-    return result;
+        if resp.statusCode != 200 {
+            return error(string `HTTP ${resp.statusCode}`);
+        }
+        string body = check resp.getTextPayload();
+        string result = body.length() > maxBytes ? body.substring(0, maxBytes) : body;
+        log:printDebug(string `    [plain-http:debug] body=${body.length()} capped=${result.length()}`);
+        return result;
+    }, 20.0, "plain-http");
 }
 
 // ─── Full content fetch for Java parser validation ────────────────────────────
-//
-// Unlike httpGetBodyPartial (which caps at 100 KB for Claude's fetch_page tool),
-// this function fetches the COMPLETE file so the Java OpenAPI parser receives
-// a well-formed, unparsed document.
-//
-// Safety limits (defence-in-depth — Content-Length is checked by callers first):
-//   - Timeout      : 60 s  (generous for slow CDNs serving large YAML files)
-//   - Max body cap : 20 MB (hard cap at the read layer; no real spec exceeds this)
-//
-// GitHub raw URLs are converted to the Contents API (same as httpGetBodyPartial)
-// and the Git Blobs API fallback is used for files > 1 MB.
-//
-// For non-GitHub URLs a Range header is NOT sent — we want the full body.
 
-const int FULL_FETCH_MAX_BYTES = 20000000;   // 20 MB hard cap
+const int FULL_FETCH_MAX_BYTES = 20000000;
 
 function httpGetBodyFull(string rawUrl) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
@@ -502,8 +509,6 @@ function httpGetBodyFull(string rawUrl) returns string|error {
     boolean isGitHubRaw = rawUrl.includes("raw.githubusercontent.com/");
 
     if isGitHubRaw {
-        // Convert to Contents API so the Git Blobs fallback path is available
-        // for files > 1 MB (same logic as httpGetBodyPartial).
         fetchUrl = rawUrlToApiUrl(rawUrl);
         headers["Accept"] = "application/vnd.github.raw";
         log:printDebug(string `    [full-fetch:debug] GitHub raw → Contents API: ${fetchUrl}`);
@@ -513,52 +518,59 @@ function httpGetBodyFull(string rawUrl) returns string|error {
         headers["Authorization"] = string `Bearer ${ghToken}`;
     }
 
-    // No Range header — we want every byte for the Java parser.
-
     log:printDebug(string `    [full-fetch:debug] fetching full body: ${fetchUrl}`);
-    time:Utc t0 = time:utcNow();
 
-    http:Client cl = check new (fetchUrl, {
-        followRedirects: {enabled: true, maxCount: 5},
-        timeout: 60,                          // 60 s — generous for large specs
-        secureSocket: {enable: true}
-    });
-    http:Response resp = check cl->get("", headers);
-    decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
-    log:printDebug(string `    [full-fetch:debug] status=${resp.statusCode} elapsed=${elapsed}s`);
+    string|error bodyOrErr = withTimeout(function () returns string|error {
+        time:Utc t0 = time:utcNow();
+        http:Client cl = check new (fetchUrl, {
+            followRedirects: {enabled: true, maxCount: 5},
+            timeout: 60,
+            secureSocket: {enable: true}
+        });
+        http:Response resp = check cl->get("", headers);
+        decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
+        log:printDebug(string `    [full-fetch:debug] status=${resp.statusCode} elapsed=${elapsed}s`);
 
-    if resp.statusCode != 200 && resp.statusCode != 206 {
-        // Check for GitHub "too large" error and fall back to Git Blobs API.
-        if isGitHubRaw && resp.statusCode == 403 {
+        if resp.statusCode == 403 {
+            // Signal to outer scope for Git Blobs fallback
+            return error(string `HTTP 403`);
+        }
+        if resp.statusCode != 200 && resp.statusCode != 206 {
+            return error(string `HTTP ${resp.statusCode}`);
+        }
+        return resp.getTextPayload();
+    }, 65.0, "full-fetch");
+
+    if bodyOrErr is error {
+        if isGitHubRaw && bodyOrErr.message().includes("403") {
             log:printInfo(string `    [full-fetch] Contents API 403 — switching to Git Blobs API: ${rawUrl}`);
             return fetchViaGitBlobsApi(rawUrl, FULL_FETCH_MAX_BYTES, ghToken);
         }
-        return error(string `HTTP ${resp.statusCode}`);
+        return bodyOrErr;
     }
 
-    string body = check resp.getTextPayload();
+    string body = bodyOrErr;
     log:printDebug(string `    [full-fetch:debug] body length=${body.length()}`);
 
-    // ── Detect GitHub "too large" JSON error in the body ──────────────────────
     if isGitHubRaw && isGitHubTooLargeError(body) {
         log:printInfo(string `    [full-fetch] Contents API: file too large (>1 MB) — switching to Git Blobs API`);
         return fetchViaGitBlobsApi(rawUrl, FULL_FETCH_MAX_BYTES, ghToken);
     }
 
-    // ── Hard cap (defence-in-depth) ───────────────────────────────────────────
     if body.length() > FULL_FETCH_MAX_BYTES {
-        log:printWarn(string `    [full-fetch] body exceeds ${FULL_FETCH_MAX_BYTES} bytes — capping (this should not happen for real specs)`);
+        log:printWarn(string `    [full-fetch] body exceeds ${FULL_FETCH_MAX_BYTES} bytes — capping`);
         return body.substring(0, FULL_FETCH_MAX_BYTES);
     }
 
-    log:printDebug(string `    [full-fetch:debug] returning ${body.length()} bytes in ${elapsed}s`);
+    log:printDebug(string `    [full-fetch:debug] returning ${body.length()} bytes`);
     return body;
 }
 
 function headOk(string headUrl) returns boolean {
     log:printDebug(string `    [headOk:debug] HEAD ${headUrl}`);
-    time:Utc t0 = time:utcNow();
-    do {
+
+    string|error result = withTimeout(function () returns string|error {
+        time:Utc t0 = time:utcNow();
         string ghToken = os:getEnv("GITHUB_TOKEN");
         map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
         if (headUrl.includes("api.github.com") || headUrl.includes("raw.githubusercontent.com")) && ghToken.length() > 0 {
@@ -572,26 +584,22 @@ function headOk(string headUrl) returns boolean {
         http:Response r = check cl->head("", headers);
         decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
         log:printDebug(string `    [headOk:debug] status=${r.statusCode} elapsed=${elapsed}s`);
-        if r.statusCode == 200 { return true; }
+        if r.statusCode == 200 { return "ok"; }
         if r.statusCode == 405 || r.statusCode == 501 {
             log:printDebug("    [headOk:debug] HEAD not allowed, trying GET");
             http:Response r2 = check cl->get("", headers);
-            log:printDebug(string `    [headOk:debug] GET fallback status=${r2.statusCode}`);
-            return r2.statusCode == 200;
+            if r2.statusCode == 200 { return "ok"; }
+            return error(string `GET fallback returned ${r2.statusCode}`);
         }
-        log:printDebug(string `    [headOk:debug] HEAD returned ${r.statusCode} — not OK`);
-        return false;
-    } on fail error e {
-        decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
-        log:printDebug(string `    [headOk:debug] HEAD failed after ${elapsed}s: ${e.message()}`);
-        return false;
-    }
-}
+        return error(string `HEAD returned ${r.statusCode}`);
+    }, 15.0, "head-check");
 
-// ─── Partial fetch with large-file GitHub awareness ───────────────────────────
-//
-// Used by the Claude fetch_page tool and direct-verify — fetches up to maxBytes.
-// For Java validation use httpGetBodyFull instead.
+    if result is string {
+        return true;
+    }
+    log:printDebug(string `    [headOk:debug] failed: ${result.message()}`);
+    return false;
+}
 
 function httpGetBodyPartial(string rawUrl, int maxBytes) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
@@ -613,39 +621,38 @@ function httpGetBodyPartial(string rawUrl, int maxBytes) returns string|error {
     if !isGitHubRaw && !fetchUrl.includes("api.github.com") {
         int rangeEnd = maxBytes - 1;
         headers["Range"] = string `bytes=0-${rangeEnd}`;
-        log:printDebug(string `    [partial-fetch:debug] non-GitHub URL — adding Range: bytes=0-${rangeEnd}`);
     }
 
-    log:printDebug(string `    [partial-fetch:debug] fetching ${fetchUrl} maxBytes=${maxBytes}`);
-    time:Utc t0 = time:utcNow();
+    string|error bodyOrErr = withTimeout(function () returns string|error {
+        time:Utc t0 = time:utcNow();
+        http:Client cl = check new (fetchUrl, {
+            followRedirects: {enabled: true, maxCount: 5},
+            timeout: 25,
+            secureSocket: {enable: true}
+        });
+        http:Response resp = check cl->get("", headers);
+        decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
+        log:printDebug(string `    [partial-fetch:debug] status=${resp.statusCode} elapsed=${elapsed}s`);
 
-    http:Client cl = check new (fetchUrl, {
-        followRedirects: {enabled: true, maxCount: 5},
-        timeout: 25,
-        secureSocket: {enable: true}
-    });
-    http:Response resp = check cl->get("", headers);
-    decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));
-    log:printDebug(string `    [partial-fetch:debug] status=${resp.statusCode} elapsed=${elapsed}s`);
+        if resp.statusCode != 200 && resp.statusCode != 206 {
+            return error(string `HTTP ${resp.statusCode}`);
+        }
+        return resp.getTextPayload();
+    }, 30.0, "partial-fetch");
 
-    if resp.statusCode != 200 && resp.statusCode != 206 {
-        return error(string `HTTP ${resp.statusCode}`);
-    }
-    string body = check resp.getTextPayload();
+    if bodyOrErr is error { return bodyOrErr; }
+    string body = bodyOrErr;
     log:printDebug(string `    [partial-fetch:debug] body length=${body.length()}`);
 
     if isGitHubRaw && isGitHubTooLargeError(body) {
-        log:printInfo(string `    [partial-fetch] Contents API: file too large (>1 MB) — switching to Git Blobs API`);
-        log:printDebug(string `    [partial-fetch:debug] too-large error body snippet: ${body.substring(0, body.length() > 200 ? 200 : body.length())}`);
+        log:printInfo(string `    [partial-fetch] Contents API: file too large — switching to Git Blobs API`);
         return fetchViaGitBlobsApi(rawUrl, maxBytes, ghToken);
     }
 
     string result = body.length() > maxBytes ? body.substring(0, maxBytes) : body;
-    log:printDebug(string `    [partial-fetch:debug] returning ${result.length()} bytes`);
     return result;
 }
 
-// Detects GitHub's "blob too large for Contents API" error in the response body.
 isolated function isGitHubTooLargeError(string body) returns boolean {
     if body.includes("\"too_large\"") { return true; }
     if body.includes("too large to fetch via the API") { return true; }
@@ -654,7 +661,6 @@ isolated function isGitHubTooLargeError(string body) returns boolean {
     return false;
 }
 
-// Converts a raw.githubusercontent.com URL to a GitHub Contents API URL.
 isolated function rawUrlToApiUrl(string rawUrl) returns string {
     string prefix = "raw.githubusercontent.com/";
     int? pi = rawUrl.indexOf(prefix);
@@ -679,10 +685,10 @@ isolated function rawUrlToApiUrl(string rawUrl) returns string {
     return string `https://api.github.com/repos/${owner}/${repo}/contents/${path}?ref=${branch}`;
 }
 
-// Returns the Content-Length of a URL from a HEAD request, or 0 if unavailable.
 function getContentLength(string contentUrl) returns int {
     log:printDebug(string `    [content-length:debug] checking ${contentUrl}`);
-    do {
+
+    string|error result = withTimeout(function () returns string|error {
         string ghToken = os:getEnv("GITHUB_TOKEN");
         map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
         if (contentUrl.includes("api.github.com") || contentUrl.includes("raw.githubusercontent.com")) && ghToken.length() > 0 {
@@ -696,14 +702,19 @@ function getContentLength(string contentUrl) returns int {
         http:Response r = check cl->head("", headers);
         if r.statusCode == 200 {
             string clHeader = check r.getHeader("content-length");
-            int|error parsed = int:fromString(clHeader);
-            if parsed is int {
-                log:printDebug(string `    [content-length:debug] Content-Length=${parsed}`);
-                return parsed;
-            }
+            return clHeader;
         }
-    } on fail error e {
-        log:printDebug(string `    [content-length:debug] failed: ${e.message()}`);
+        return error(string `HEAD returned ${r.statusCode}`);
+    }, 15.0, "content-length");
+
+    if result is string {
+        int|error parsed = int:fromString(result);
+        if parsed is int {
+            log:printDebug(string `    [content-length:debug] Content-Length=${parsed}`);
+            return parsed;
+        }
+    } else {
+        log:printDebug(string `    [content-length:debug] failed: ${result.message()}`);
     }
     return 0;
 }
@@ -923,7 +934,6 @@ isolated function jsonArr(string[] items) returns string {
     return r + "]";
 }
 
-// Returns a compact timestamp string for debug logs.
 isolated function timeNow() returns string {
     return time:utcToString(time:utcNow());
 }
