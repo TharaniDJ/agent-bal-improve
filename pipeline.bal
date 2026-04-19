@@ -960,16 +960,9 @@ public function stepContentVerify(
             contentLength = getContentLength(candidateUrl);
             log:printDebug(string `  [step4:debug] headOk=true contentLength=${contentLength}`);
 
-            // Pathological: > 20 MB is not a real OpenAPI spec — skip entirely.
-            if contentLength > 20000000 {
-                log:printWarn(string `  [step4] file too large (${contentLength} bytes) — skipping: ${candidateUrl}`);
-                continue;
-            }
-
-            // Large files (5–20 MB): fetch and validate normally.
-            // httpGetBodyFull supports up to 20 MB (60 s timeout, Git Blobs API
-            // fallback for GitHub).  The Java parser runs with setResolve(false)
-            // so it does not chase $ref URLs and handles large files fine.
+            // Large files: fetch and validate normally.
+            // httpGetBodyFull has no byte cap — the Java parser must receive the
+            // complete document.  setResolve(false) means no $ref chasing.
             if contentLength > 5000000 {
                 log:printInfo(string `  [step4] large file (${contentLength} bytes) — fetching for validation: ${candidateUrl}`);
             }
@@ -980,9 +973,7 @@ public function stepContentVerify(
 
         // ── Full content fetch ────────────────────────────────────────────────
         // No byte cap — the Java parser must receive the complete document to
-        // parse it correctly. httpGetBodyFull uses a 60 s timeout and a 20 MB
-        // safety cap at the HTTP layer (Content-Length was checked above but
-        // servers that omit that header could still stream large bodies).
+        // parse it correctly. httpGetBodyFull uses a 60 s timeout.
         time:Utc t0 = time:utcNow();
         string|error body = httpGetBodyFull(candidateUrl);
         decimal elapsed = rd(time:utcDiffSeconds(time:utcNow(), t0));

@@ -519,7 +519,7 @@ public final Connector[] & readonly ALL_CONNECTORS = [
     //{name: "Epic FHIR",        docsUrl: "https://fhir.epic.com/Specifications",        targetTitle: ()},
     //{name: "Cerner FHIR",      docsUrl: "https://docs.oracle.com/en/industries/health/millennium-platform-apis/mfrap/r4_overview.html", targetTitle: ()},
     //{name: "AthenaHealth FHIR",docsUrl: "https://docs.athenahealth.com/api/docs/fhir-apis", targetTitle: ()}
-    {name: "Microsoft One Drive", docsUrl: "https://learn.microsoft.com/en-us/onedrive/developer/rest-api/?view=odsp-graph-online&utm_source", targetTitle: ()},
-    {name: "Salesforce Marketing Cloud", docsUrl: "https://developer.salesforce.com/docs/marketing/marketing-cloud/guide/apis-overview?utm_source", targetTitle: ()}
+    {name: "Microsoft One Drive", docsUrl: "https://learn.microsoft.com/en-us/onedrive/developer/rest-api/?view=odsp-graph-online&utm_source", targetTitle: ()}
+    //{name: "Salesforce Marketing Cloud", docsUrl: "https://developer.salesforce.com/docs/marketing/marketing-cloud/guide/apis-overview?utm_source", targetTitle: ()}
 
 ];

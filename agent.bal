@@ -169,7 +169,7 @@ isolated function parseGitHubRawUrl(string rawUrl) returns GitHubRawUrl? {
 
 // ─── Git Blobs API fallback for files > 1 MB ─────────────────────────────────
 
-function fetchViaGitBlobsApi(string rawUrl, int maxBytes, string ghToken) returns string|error {
+function fetchViaGitBlobsApi(string rawUrl, string ghToken) returns string|error {
     log:printDebug(string `    [blobs-api] starting Git Blobs API fallback for: ${rawUrl}`);
 
     GitHubRawUrl? parsed = parseGitHubRawUrl(rawUrl);
@@ -255,7 +255,7 @@ function fetchViaGitBlobsApi(string rawUrl, int maxBytes, string ghToken) return
     // ── Base64 fallback ───────────────────────────────────────────────────────
     if blobBody.trim().startsWith("{") && blobBody.includes("\"encoding\"") {
         log:printDebug("    [blobs-api:step2] response looks like JSON blob envelope — attempting base64 decode");
-        string? decoded = decodeGitHubBlobBase64(blobBody, maxBytes);
+        string? decoded = decodeGitHubBlobBase64(blobBody);
         if decoded is string {
             log:printInfo(string `    [blobs-api:step2] base64 decode succeeded — returning ${decoded.length()} bytes`);
             return decoded;
@@ -263,14 +263,13 @@ function fetchViaGitBlobsApi(string rawUrl, int maxBytes, string ghToken) return
         log:printWarn("    [blobs-api:step2] base64 decode failed — returning raw response (looksLikeSpec may reject it)");
     }
 
-    string result = blobBody.length() > maxBytes ? blobBody.substring(0, maxBytes) : blobBody;
-    log:printDebug(string `    [blobs-api:step2] returning ${result.length()} bytes (raw)`);
-    return result;
+    log:printDebug(string `    [blobs-api:step2] returning ${blobBody.length()} bytes (raw)`);
+    return blobBody;
 }
 
 // ─── Base64 blob decoder ──────────────────────────────────────────────────────
 
-function decodeGitHubBlobBase64(string jsonBody, int maxBytes) returns string? {
+function decodeGitHubBlobBase64(string jsonBody) returns string? {
     do {
         json parsed = check jsonBody.fromJsonString();
         if !(parsed is map<json>) { return (); }
@@ -284,14 +283,10 @@ function decodeGitHubBlobBase64(string jsonBody, int maxBytes) returns string? {
         string cleanB64 = re `[\n\r\s]`.replaceAll(<string>cnt, "");
         log:printDebug(string `    [base64-decode] clean base64 length: ${cleanB64.length()}`);
 
-        int b64Limit = (maxBytes / 3 + 1) * 4 + 4;
-        string b64Slice = cleanB64.length() > b64Limit ? cleanB64.substring(0, b64Limit) : cleanB64;
-
-        byte[] decoded = check langarray:fromBase64(b64Slice);
+        byte[] decoded = check langarray:fromBase64(cleanB64);
         string rawStr = check string:fromBytes(decoded);
-        string capped = rawStr.length() > maxBytes ? rawStr.substring(0, maxBytes) : rawStr;
-        log:printDebug(string `    [base64-decode] decoded ${decoded.length()} bytes, returning ${capped.length()}`);
-        return capped;
+        log:printDebug(string `    [base64-decode] decoded ${decoded.length()} bytes, returning ${rawStr.length()}`);
+        return rawStr;
     } on fail error e {
         log:printDebug(string `    [base64-decode] failed: ${e.message()}`);
         return ();
@@ -492,8 +487,6 @@ function httpGetBodyPlain(string fetchUrl, map<string|string[]> headers, int max
 //
 // For non-GitHub URLs a Range header is NOT sent — we want the full body.
 
-const int FULL_FETCH_MAX_BYTES = 20000000;   // 20 MB hard cap
-
 function httpGetBodyFull(string rawUrl) returns string|error {
     string ghToken = os:getEnv("GITHUB_TOKEN");
     map<string|string[]> headers = {"User-Agent": "openapi-spec-finder/1.0"};
@@ -531,7 +524,7 @@ function httpGetBodyFull(string rawUrl) returns string|error {
         // Check for GitHub "too large" error and fall back to Git Blobs API.
         if isGitHubRaw && resp.statusCode == 403 {
             log:printInfo(string `    [full-fetch] Contents API 403 — switching to Git Blobs API: ${rawUrl}`);
-            return fetchViaGitBlobsApi(rawUrl, FULL_FETCH_MAX_BYTES, ghToken);
+            return fetchViaGitBlobsApi(rawUrl, ghToken);
         }
         return error(string `HTTP ${resp.statusCode}`);
     }
@@ -542,13 +535,7 @@ function httpGetBodyFull(string rawUrl) returns string|error {
     // ── Detect GitHub "too large" JSON error in the body ──────────────────────
     if isGitHubRaw && isGitHubTooLargeError(body) {
         log:printInfo(string `    [full-fetch] Contents API: file too large (>1 MB) — switching to Git Blobs API`);
-        return fetchViaGitBlobsApi(rawUrl, FULL_FETCH_MAX_BYTES, ghToken);
-    }
-
-    // ── Hard cap (defence-in-depth) ───────────────────────────────────────────
-    if body.length() > FULL_FETCH_MAX_BYTES {
-        log:printWarn(string `    [full-fetch] body exceeds ${FULL_FETCH_MAX_BYTES} bytes — capping (this should not happen for real specs)`);
-        return body.substring(0, FULL_FETCH_MAX_BYTES);
+        return fetchViaGitBlobsApi(rawUrl, ghToken);
     }
 
     log:printDebug(string `    [full-fetch:debug] returning ${body.length()} bytes in ${elapsed}s`);
@@ -637,7 +624,8 @@ function httpGetBodyPartial(string rawUrl, int maxBytes) returns string|error {
     if isGitHubRaw && isGitHubTooLargeError(body) {
         log:printInfo(string `    [partial-fetch] Contents API: file too large (>1 MB) — switching to Git Blobs API`);
         log:printDebug(string `    [partial-fetch:debug] too-large error body snippet: ${body.substring(0, body.length() > 200 ? 200 : body.length())}`);
-        return fetchViaGitBlobsApi(rawUrl, maxBytes, ghToken);
+        string full = check fetchViaGitBlobsApi(rawUrl, ghToken);
+        return full.length() > maxBytes ? full.substring(0, maxBytes) : full;
     }
 
     string result = body.length() > maxBytes ? body.substring(0, maxBytes) : body;
