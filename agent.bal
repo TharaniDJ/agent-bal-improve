@@ -689,7 +689,7 @@ function getContentLength(string contentUrl) returns int {
             headers["Authorization"] = string `Bearer ${ghToken}`;
         }
         http:Client cl = check new (contentUrl, {
-            followRedirects: {enabled: true, maxCount: 5},
+            followRedirects: {enabled: true, maxCount: 100},
             timeout: 12,
             secureSocket: {enable: true}
         });
