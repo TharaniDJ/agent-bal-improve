@@ -2,7 +2,7 @@
 // Entry point — runs the agent for each connector SEQUENTIALLY, one at a time.
 //
 // FIX (2026-04-17): `processConnector` is now wrapped in a hard wall-clock
-// budget (MAX_CONNECTOR_SECONDS, default 300 s).  Previously this constant
+// budget (MAX_CONNECTOR_SECONDS, default 600 s).  Previously this constant
 // was defined but never actually enforced — one stuck HTTP call could freeze
 // the whole run.  The budget is enforced by racing the work against a timer
 // worker, same pattern as withTimeout() in agent.bal.
@@ -23,7 +23,7 @@ const string BAR  = "===========================================================
 const string DASH = "----------------------------------------------------------------";
 
 // Hard wall-clock ceiling for a single connector, all steps combined.
-const decimal DEFAULT_MAX_CONNECTOR_SECONDS = 300.0;
+const decimal DEFAULT_MAX_CONNECTOR_SECONDS = 600.0;
 
 public function main() returns error? {
     string apiKey    = os:getEnv("ANTHROPIC_API_KEY");
