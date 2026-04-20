@@ -929,10 +929,9 @@ public function directVerifyKnownUrl(string knownUrl, string? knownRepo) returns
 //
 // For each candidate URL:
 //   1. HEAD check (fast pre-filter) + Content-Length
-//   2. If Content-Length > 20 MB → skip (pathological; no real spec is that large)
-//   3. If Content-Length > 5 MB  → trust HEAD alone (Microsoft Graph, etc.)
-//   4. Fetch the FULL file via httpGetBodyFull (no byte cap)
-//   5. Validate with the Java OpenAPI parser — needs a complete document
+//   2. If Content-Length > 5 MB  → log a notice, then fetch and validate normally
+//   3. Fetch the FULL file via httpGetBodyFull (up to 20 MB HTTP safety cap)
+//   4. Validate with the Java OpenAPI parser — needs a complete document
 
 public function stepContentVerify(
     DiscoveryResult discovery
@@ -960,13 +959,7 @@ public function stepContentVerify(
             contentLength = getContentLength(candidateUrl);
             log:printDebug(string `  [step4:debug] headOk=true contentLength=${contentLength}`);
 
-            // Pathological: > 20 MB is not a real OpenAPI spec — skip entirely.
-            if contentLength > 20000000 {
-                log:printWarn(string `  [step4] file too large (${contentLength} bytes) — skipping: ${candidateUrl}`);
-                continue;
-            }
-
-            // Large files (5–20 MB): fetch and validate normally.
+            // Large files (> 5 MB): fetch and validate normally.
             // httpGetBodyFull supports up to 20 MB (60 s timeout, Git Blobs API
             // fallback for GitHub).  The Java parser runs with setResolve(false)
             // so it does not chase $ref URLs and handles large files fine.
